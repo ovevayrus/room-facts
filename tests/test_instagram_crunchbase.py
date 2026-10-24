@@ -69,7 +69,7 @@ def test_investor_and_stage_count_only_current_employees():
         def __init__(self):
             self.queries = []
 
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             self.queries.append(query)
             return Result()
 
@@ -188,7 +188,7 @@ def test_graph_rows_reads_investor_as_two_hop():
         def __init__(self):
             self.queries = []
 
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             self.queries.append(query)
             if "RETURN p.id, 'BACKED_BY'" in query:
                 return Result([("u", "BACKED_BY", "Investor", "y-combinator", "Y Combinator", False, False, True)])

@@ -93,7 +93,7 @@ def test_interest_score_uses_metadata_and_stable_tiebreak():
             self.result_set = rows
 
     class Graph:
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             if "RETURN i.id, c.id" in query:
                 return Result([("fund", "co-0"), ("fund", "co-1"), ("fund", "co-2")])
             if "RETURN p.id, 'BACKED_BY'" in query:
@@ -166,7 +166,7 @@ def test_graph_reads_current_combo_paths_without_hiding_constituent_edges():
             self.reads = []
             self.writes = []
 
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             self.reads.append(query)
             if "<-[a:STUDIED_AT]" in query and "IN_INDUSTRY" in query:
                 return Result([("p", "example-u", "Example U", "robotics", "Robotics", False, False, False)])

@@ -116,22 +116,41 @@ def interest_score(kind, n, total_holders, entity_id, stars=0, backed_companies=
     return score
 
 
+GRAPH_PAGE_SIZE = 5000
+
+
+def _graph_read_all(graph, query, order_by):
+    """Read bounded, deterministically ordered pages below FalkorDB's result cap."""
+    rows = []
+    offset = 0
+    while True:
+        page = graph.ro_query(
+            f"{query} ORDER BY {order_by} SKIP $page_offset LIMIT $page_size",
+            {"page_offset": offset, "page_size": GRAPH_PAGE_SIZE},
+        ).result_set
+        rows.extend(page)
+        if len(page) < GRAPH_PAGE_SIZE:
+            return rows
+        offset += len(page)
+
+
 def graph_rows(graph):
-    """One read of graph relationships, including hidden ones for personal review."""
+    """Read all graph relationships, including hidden ones for personal review."""
     query = "MATCH (p:Person)-[r]->(x) RETURN p.id, type(r), labels(x)[0], x.id, x.name, r.hidden, p.opted_in, r.current, x.stars"
     issuer_query = "MATCH (p:Person)-[r:CERTIFIED]->(:Cert)-[:ISSUED_BY]->(i:Issuer) RETURN p.id, 'ISSUED_BY', 'Issuer', i.id, i.name, r.hidden, p.opted_in, null"
-    rows = graph.ro_query(query).result_set + graph.ro_query(issuer_query).result_set
+    rows = _graph_read_all(graph, query, "id(p), id(r), id(x)")
+    rows += _graph_read_all(graph, issuer_query, "id(p), id(r), id(i)")
     for kind, (source_label, rel, target_label, _) in ORG_PATHS.items():
         first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
         current_only = " WHERE r.current=true" if kind in {"investor", "funding_stage"} else ""
         path_query = f"MATCH (p:Person)-[r:{first}]->(s:{source_label})-[:{rel}]->(x:{target_label}){current_only} RETURN p.id, '{rel}', '{target_label}', x.id, x.name, r.hidden, p.opted_in, r.current, s.id"
-        rows += graph.ro_query(path_query).result_set
-    for investor_id, company_id in graph.ro_query("MATCH (c:Company)-[:BACKED_BY]->(i:Investor) RETURN i.id, c.id").result_set:
+        rows += _graph_read_all(graph, path_query, "id(p), id(r), id(x)")
+    for investor_id, company_id in _graph_read_all(graph, "MATCH (c:Company)-[:BACKED_BY]->(i:Investor) RETURN i.id, c.id", "id(c), id(i)"):
         rows.append((None, "INVESTOR_BACKING", "", investor_id, "", False, False, False, company_id))
     for kind, (rel, label) in COMBO_PATHS.items():
         combo_query = (f"MATCH (s:School)<-[a:STUDIED_AT]-(p:Person)-[b:WORKED_AT]->(:Company)-[:{rel}]->(x:{label}) "
                        f"WHERE b.current=true RETURN p.id, s.id, s.name, x.id, x.name, a.hidden, b.hidden, p.opted_in")
-        for pid, sid, school, tid, target, school_hidden, company_hidden, opted in graph.ro_query(combo_query).result_set:
+        for pid, sid, school, tid, target, school_hidden, company_hidden, opted in _graph_read_all(graph, combo_query, "id(p), id(a), id(b), id(x)"):
             rows.append((pid, f"COMBO_{kind}", label, (sid, tid), (school, target), bool(school_hidden or company_hidden), opted))
     return rows
 
