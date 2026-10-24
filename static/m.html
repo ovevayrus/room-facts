@@ -26,9 +26,9 @@
     {id:"p3",name:"Sam Patel",avatar:"",linkedin:"sam-patel"}
   ];
   const samplePersonFacts = [
-    {fact_id:"school:uc-berkeley",kind:"school",line_you:"You studied at UC Berkeley",n_if_eligible:4,hidden:false},
-    {fact_id:"company:acme",kind:"company",line_you:"You have worked at Acme",n_if_eligible:3,hidden:false},
-    {fact_id:"city:oakland",kind:"city",line_you:"You live in Oakland",n_if_eligible:null,hidden:false}
+    {fact_id:"school:uc-berkeley",kind:"school",line_you:"You studied at UC Berkeley",n_if_eligible:4,connection_count:1,hidden:false},
+    {fact_id:"company:acme",kind:"company",line_you:"You have worked at Acme",n_if_eligible:3,connection_count:1,hidden:false},
+    {fact_id:"city:oakland",kind:"city",line_you:"You live in Oakland",n_if_eligible:null,connection_count:0,hidden:false}
   ];
   let stage = "intro", fact = null, person = null, optedIn = null, personFacts = [], searchTimer = 0, searchSeq = 0;
   let mockOpted = false, mockHidden = [];
@@ -68,7 +68,7 @@
     return response.json();
   }
   function mockApi(path, options) {
-    const raw = decodeURIComponent(path);
+    const raw = decodeURIComponent(path.split("?")[0]);
     if (raw === "/api/me") { if (mockOpted) return Promise.resolve(person || samplePeople[0]); const e = new Error("Not opted in"); e.status = 401; return Promise.reject(e); }
     if (raw.startsWith("/api/fact/") && raw.endsWith("/people")) {
       const id = raw.slice(10, -7);
@@ -81,8 +81,8 @@
     if (raw === "/api/connections") { if (!mockOpted) { const e = new Error("Not opted in"); e.status = 401; return Promise.reject(e); } return Promise.resolve({people:[{name:samplePeople[1].name,avatar:"",linkedin:samplePeople[1].linkedin,shared:[{line:"You both studied at UC Berkeley",path:["You","STUDIED_AT","UC Berkeley","STUDIED_AT","Jordan"]}],more:1}]}); }
     if (raw.startsWith("/api/stats")) return Promise.resolve({opted_in:mockOpted ? 2 : 1});
     if (raw.startsWith("/api/people/search")) { const q = new URL(path, location.href).searchParams.get("q").toLowerCase(); return Promise.resolve(samplePeople.filter(p => p.name.toLowerCase().includes(q)).slice(0,8)); }
-    if (raw === "/api/review-session") return Promise.resolve({facts:(person?.id === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts).map(f => ({...f,hidden:mockHidden.includes(f.fact_id)}))});
-    if (raw.startsWith("/api/person/") && raw.endsWith("/facts")) return Promise.resolve((raw.slice(12, -6) === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts).map(f => ({...f,hidden:mockHidden.includes(f.fact_id)})));
+    if (raw === "/api/review-session") return Promise.resolve({facts:(person?.id === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts).filter(f => !JSON.parse(options.body).connections_only || f.connection_count > 0).map(f => ({...f,hidden:mockHidden.includes(f.fact_id)}))});
+    if (raw.startsWith("/api/person/") && raw.endsWith("/facts")) return Promise.resolve((raw.slice(12, -6) === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts).filter(f => !new URL(path, location.href).searchParams.has("connections_only") || f.connection_count > 0).map(f => ({...f,hidden:mockHidden.includes(f.fact_id)})));
     if (raw.startsWith("/api/person/")) return Promise.resolve(samplePeople.find(p => p.id === raw.slice(12)) || samplePeople[0]);
     if (raw === "/api/optin") { mockOpted = true; mockHidden = JSON.parse(options.body).hide; return Promise.resolve({ok:true,person}); }
     if (raw === "/api/me/facts") { const b = JSON.parse(options.body); mockHidden = [...new Set([...mockHidden, ...b.hide])].filter(id => !b.show.includes(id)); return Promise.resolve([]); }
@@ -90,6 +90,10 @@
     return Promise.reject(new Error("Unknown mock endpoint"));
   }
   function heading(label, title, lead = "") { return `<div class="step">${esc(label)}</div><h1>${esc(title)}</h1>${lead ? `<p class="lead">${esc(lead)}</p>` : ""}`; }
+  function factCount(f) {
+    if (Number.isInteger(f.connection_count)) return `${f.connection_count} ${f.connection_count === 1 ? "person" : "people"} you can meet`;
+    return f.n_if_eligible != null ? `${f.n_if_eligible} people share this fact` : "";
+  }
   function avatar(p) { return p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="">` : `<span class="avatar fallback" aria-hidden="true">${esc((p.name || "?")[0])}</span>`; }
   function linkedinURL(p) {
     if (p.linkedin_url) { try { const u = new URL(p.linkedin_url); return u.protocol === "https:" && (u.hostname === "linkedin.com" || u.hostname.endsWith(".linkedin.com")) ? u.href : ""; } catch { return ""; } }
@@ -151,15 +155,15 @@
   }
   function loadPersonFacts() {
     return runAction($("#yes"), "Loading your facts…", async () => {
-      const data = await api("/api/review-session", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({person_id:person.id})});
+      const data = await api("/api/review-session", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({person_id:person.id,connections_only:true})});
       if (!Array.isArray(data.facts)) throw new Error("Invalid facts response");
       personFacts = data.facts; yourFacts();
     }, "Could not load your facts. Please try again.");
   }
   function yourFacts() {
     stage = "facts";
-    app.innerHTML = heading("04 / Your facts", "Choose what counts", "Only checked facts will be shared. Uncheck anything wrong or anything you'd rather keep private.") +
-      `<details class="card fact-review"><summary><h2>Review your facts</h2></summary>${personFacts.length ? personFacts.map((f,i) => `<label class="check"><input type="checkbox" data-index="${i}"${f.hidden || f.pending || f.locked_hidden ? "" : " checked"}${f.locked_hidden ? " disabled" : ""}><span>${esc(f.line_you)}${f.n_if_eligible != null ? `<small>${esc(f.n_if_eligible)} people share this fact</small>` : ""}${f.locked_hidden ? `<small>Hidden earlier. You can change this after joining.</small>` : ""}</span></label>`).join("") : `<p class="muted">No facts found yet. You can still join.</p>`}</details>` +
+    app.innerHTML = heading("04 / Your facts", "Choose what counts", "These facts connect you to people who have joined. Only checked facts will be shared.") +
+      `<details class="card fact-review"><summary><h2>Review your facts</h2></summary>${personFacts.length ? personFacts.map((f,i) => `<label class="check"><input type="checkbox" data-index="${i}"${f.hidden || f.pending || f.locked_hidden ? "" : " checked"}${f.locked_hidden ? " disabled" : ""}><span>${esc(f.line_you)}${factCount(f) ? `<small>${esc(factCount(f))}</small>` : ""}${f.locked_hidden ? `<small>Hidden earlier. You can change this after joining.</small>` : ""}</span></label>`).join("") : `<p class="muted">No connections through your facts yet. You can still join.</p>`}</details>` +
       `<button class="button" id="optin">Share selected facts and find people</button><button class="button secondary" id="back">Back</button><p class="error" id="error" role="alert"></p>`;
     $("#back").onclick = confirmPerson;
     $("#optin").onclick = optIn;
@@ -235,7 +239,7 @@
   }
   async function loadReview(viewer) {
     try {
-      const rows = await api(`/api/person/${encodeURIComponent(viewer)}/facts`);
+      const rows = await api(`/api/person/${encodeURIComponent(viewer)}/facts?connections_only=true`);
       if (stage !== "results" || person?.id !== viewer || !$("#review")) return;
       personFacts = rows; reviewFacts();
     } catch (e) { /* Reviewing facts is optional; the people list still loads. */ }
@@ -243,8 +247,8 @@
   function reviewFacts() {
     const rows = personFacts.filter(f => f.fact_id);
     const pending = rows.filter(f => f.pending).length;
-    $("#review").innerHTML = rows.length ? `<details class="card fact-review"><summary><h2>Review your facts</h2></summary><p class="muted">${pending ? `${esc(pending)} fact${pending === 1 ? "" : "s"} won't count until you approve ${pending === 1 ? "it" : "them"}.` : "Checked facts count. Uncheck anything you'd rather hide."}</p>` +
-      rows.map((f,i) => `<label class="check"><input type="checkbox" data-review="${i}"${f.hidden || f.pending ? "" : " checked"}><span>${esc(f.line_you)}<small>${f.pending ? "Not reviewed yet" : f.hidden ? "Hidden" : "Counts"}${f.n_if_eligible != null ? ` · ${esc(f.n_if_eligible)} people` : ""}</small></span></label>`).join("") +
+    $("#review").innerHTML = rows.length ? `<details class="card fact-review"><summary><h2>Review your facts</h2></summary><p class="muted">${pending ? `${esc(pending)} fact${pending === 1 ? "" : "s"} won't count until you approve ${pending === 1 ? "it" : "them"}.` : "Only facts that connect you to people who have joined are shown. Uncheck anything you'd rather hide."}</p>` +
+      rows.map((f,i) => `<label class="check"><input type="checkbox" data-review="${i}"${f.hidden || f.pending ? "" : " checked"}><span>${esc(f.line_you)}<small>${f.pending ? "Not reviewed yet" : f.hidden ? "Hidden" : "Counts"}${factCount(f) ? ` · ${esc(factCount(f))}` : ""}</small></span></label>`).join("") +
       `<button class="button" id="save-facts">Save my facts</button></details>` : "";
     if (!rows.length) return;
     $("#save-facts").onclick = async () => {

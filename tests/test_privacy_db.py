@@ -217,3 +217,32 @@ def test_choosing_industry_without_company_keeps_the_selected_overlap(db_app):
     build_graph.rebuild(FIXTURES / 'luma_sample.json', FIXTURES / 'linkedin_sample.json', 'roomfacts_test')
     catalog = server.snapshot(force=True)['catalog']
     assert 'u1' in catalog['company:stripe']['holders'] and 'u2' not in catalog['company:stripe']['holders']
+
+
+def test_connected_fact_list_omits_solo_paths_hidden_and_pending_coholders(db_app):
+    client = db_app
+    g = build_graph.graph_client()
+    for cause in ('paired', 'concealed', 'unreviewed'):
+        g.query("MATCH (p:Person) WHERE p.id IN ['u1','u2'] MERGE (c:Cause {id:$cause, name:$cause}) MERGE (p)-[r:VOLUNTEERS_FOR]->(c) SET r.hidden=false", {'cause': cause})
+    g.query("MATCH (p:Person {id:'u1'}) MERGE (c:Company {id:'solo', name:'Solo Company'}) MERGE (p)-[r:WORKED_AT]->(c) SET r.hidden=false")
+    opt_in_and_review(client, 'u2')
+    client.post('/api/me/facts', json={'hide': ['cause:concealed']}).raise_for_status()
+    saved = server.load_optins()
+    saved['u2']['pending'] = ['cause:unreviewed']
+    saved['u2']['approved'] = [fid for fid in saved['u2']['approved'] if fid != 'cause:unreviewed']
+    server.save_optins(saved)
+    client.cookies.clear()
+    opt_in_and_review(client, 'u1')
+    complete = {f['fact_id'] for f in client.get('/api/person/u1/facts').json()}
+    assert {'company:solo', 'school_company:uc-berkeley>solo'} <= complete
+    response = client.get('/api/person/u1/facts?connections_only=true')
+    response.raise_for_status()
+    connected = {f['fact_id']: f for f in response.json()}
+    assert connected['cause:paired']['connection_count'] == 1
+    assert not {'company:solo', 'school_company:uc-berkeley>solo', 'cause:concealed', 'cause:unreviewed'} & set(connected)
+    assert all(f['connection_count'] >= 1 for f in connected.values())
+    # Asking for connections never grants anonymous access to private facts or counts.
+    client.cookies.clear()
+    anonymous = client.get('/api/person/u1/facts?connections_only=true').json()
+    assert 'cause:paired' not in {f['fact_id'] for f in anonymous}
+    assert all('connection_count' not in f and f['n_if_eligible'] >= 3 for f in anonymous)

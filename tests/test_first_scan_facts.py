@@ -179,3 +179,19 @@ def test_device_limit_preserves_existing_sessions_and_owner_reuses_cookie(review
     client.cookies.clear()
     assert client.post("/api/optin", json={"person_id": "p0"}).status_code == 429
     assert saved["p0"]["tokens"] == original_tokens and len(mutations) == before
+
+
+def test_connected_review_captures_only_facts_with_other_opted_holders(review_app):
+    client, rows, saved, mutations = review_app
+    rows[:] = [(*item[:6], item[0] == 'p1', *item[7:]) for item in rows]
+    rows.append(row('p0', 'WORKED_AT', 'Company', 'solo', 'Solo Company'))
+    response = client.post('/api/review-session', json={'person_id': 'p0', 'connections_only': True})
+    response.raise_for_status()
+    facts = response.json()['facts']
+    assert {f['fact_id'] for f in facts} == {'school:uni', 'language:rare'}
+    assert all(f['connection_count'] == 1 for f in facts)
+    assert saved == {} and mutations == []
+    # The invisible solo employer and school/employer path were not declined by the person.
+    client.post('/api/optin', json={'person_id': 'p0', 'show': ['school:uni', 'language:rare']}).raise_for_status()
+    assert saved['p0']['fact_hidden'] == []
+    assert {'company:solo', 'school_company:uni>solo'} <= set(saved['p0']['pending'])

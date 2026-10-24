@@ -229,17 +229,23 @@ def review_session(request, pid):
         return state if state and state["person_id"] == pid else None
 
 
-def person_fact_rows(pid, catalog, private=False, reviewed=None):
+def person_fact_rows(pid, catalog, private=False, reviewed=None, connections_only=False, self_opted=False):
     pending = set(load_optins().get(pid, {}).get("pending", [])) if private else set()
     values = [f for f in catalog.values() if pid in f["all_holders"]
               and (private or publicly_listed(f, pid)) and (reviewed is None or f["id"] in reviewed)]
+    connection_counts = {}
+    if private and connections_only:
+        connection_counts = {f["id"]: max(0, f["opted_in"] - int(self_opted and pid in f["holders"])) for f in values}
+        values = [f for f in values if connection_counts[f["id"]] > 0]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
     return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None},
+             **({"connection_count": connection_counts[f["id"]]} if private and connections_only else {}),
              **({"hidden": pid in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
 
 
 class ReviewSessionBody(BaseModel):
     person_id: str
+    connections_only: bool = False
 
 
 @app.post("/api/review-session")
@@ -257,7 +263,7 @@ def start_review(body: ReviewSessionBody, request: Request, response: Response):
                     _review_hits.pop(old_key, None)
             if len(_review_hits) > 2000:
                 _review_hits.pop(next(iter(_review_hits)))
-        person_row(body.person_id)
+        person = person_row(body.person_id)
         for digest, state in list(_reviews.items()):
             if now - state["at"] >= REVIEW_TTL:
                 _reviews.pop(digest, None)
@@ -268,7 +274,7 @@ def start_review(body: ReviewSessionBody, request: Request, response: Response):
         # A cached review is safe: final submission validates against a fresh graph,
         # and facts not displayed in this review can never be silently approved.
         catalog = snapshot(force=_cache.get("optins") != optins_stamp())["catalog"]
-        rows = person_fact_rows(body.person_id, catalog, private=True)
+        rows = person_fact_rows(body.person_id, catalog, private=True, connections_only=body.connections_only, self_opted=person["opted_in"])
         owner = auth_person(request)
         if not owner or owner["id"] != body.person_id:
             previous = load_optins().get(body.person_id, {})
@@ -287,13 +293,14 @@ def start_review(body: ReviewSessionBody, request: Request, response: Response):
 
 
 @app.get("/api/person/{id}/facts")
-def person_facts(id: str, request: Request):
-    person_row(id)
-    catalog = snapshot()["catalog"]
+def person_facts(id: str, request: Request, connections_only: bool = False):
+    person = person_row(id)
+    catalog = snapshot(force=connections_only and _cache.get("optins") != optins_stamp())["catalog"]
     owner = auth_person(request)
     is_owner = bool(owner and owner["id"] == id)
     review = review_session(request, id) if not is_owner else None
-    return person_fact_rows(id, catalog, private=is_owner or bool(review), reviewed=review["facts"] if review else None)
+    return person_fact_rows(id, catalog, private=is_owner or bool(review), reviewed=review["facts"] if review else None,
+                            connections_only=connections_only, self_opted=bool(connections_only and person["opted_in"]))
 
 
 class OptInBody(BaseModel):
