@@ -331,11 +331,20 @@ def connections(request: Request):
     person = auth_person(request)
     if not person:
         raise HTTPException(401, "Not opted in")
-    # Names are disclosed here, so read visibility consistently: hold the lock fact changes take (they
-    # refresh the cache before releasing it), and rebuild if optins.json changed in another process.
-    with _lock:
-        catalog = snapshot(force=_cache.get("optins") != optins_stamp())["catalog"]
+    # Names are disclosed here, so the answer must match current visibility. Take the catalog under the
+    # lock (rebuilt if optins.json changed in another process), read people outside it so opt-ins and
+    # reviews aren't held up, then confirm nothing changed: every hide, review or opt-out replaces the
+    # cached catalog before releasing the lock. If something did change, read again.
+    for _ in range(3):
+        with _lock:
+            catalog = snapshot(force=_cache.get("optins") != optins_stamp())["catalog"]
         people = assist.connections(graph(), person["id"], catalog)
+        with _lock:
+            if _cache["catalog"] is catalog and _cache.get("optins") == optins_stamp():
+                break
+    else:
+        with _lock:
+            people = assist.connections(graph(), person["id"], snapshot(force=True)["catalog"])
     return {"people": [{key: p[key] for key in ("name", "avatar", "linkedin", "shared", "more")} for p in people]}
 
 

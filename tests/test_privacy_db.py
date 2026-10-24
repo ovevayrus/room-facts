@@ -156,11 +156,36 @@ def test_connections_see_hides_written_by_another_process(db_app):
     opt_in_and_review(client, "u2")
     opt_in_and_review(client, "u1")
     assert "Stripe" in json.dumps(client.get("/api/connections").json())
-    # Another server process hides Stripe for u2: it edits the graph and optins.json, not this cache.
-    saved = json.loads(server.OPTINS.read_text())
-    stripe = {f["id"] for f in server.snapshot()["catalog"].values() if "u2" in f["all_holders"] and "stripe" in f["id"]}
-    saved["u2"]["hidden"] = sorted(set(saved["u2"].get("hidden", [])) | stripe)
-    for fid in stripe:
-        build_graph.set_hidden(build_graph.graph_client(), "u2", fid)
-    server.OPTINS.write_text(json.dumps(saved))
+    hide_from_another_process("u2", "stripe")
     assert "Stripe" not in json.dumps(client.get("/api/connections").json())
+
+
+def hide_from_another_process(pid, needle):
+    """Hide every fact of pid whose id contains needle, as another server process would:
+    it edits the graph and optins.json, not this process's cache."""
+    saved = json.loads(server.OPTINS.read_text())
+    ids = {f["id"] for f in server._cache["catalog"].values() if pid in f["all_holders"] and needle in f["id"]}
+    assert ids
+    saved[pid]["hidden"] = sorted(set(saved[pid].get("hidden", [])) | ids)
+    for fid in ids:
+        build_graph.set_hidden(build_graph.graph_client(), pid, fid)
+    server.OPTINS.write_text(json.dumps(saved))
+
+
+def test_connections_reread_when_a_hide_lands_mid_request(db_app, monkeypatch):
+    import assist
+    client = db_app
+    opt_in_and_review(client, "u2")
+    opt_in_and_review(client, "u1")
+    real, calls = assist.connections, []
+
+    def racing(graph, viewer, catalog):
+        result = real(graph, viewer, catalog)
+        if not calls:
+            hide_from_another_process("u2", "stripe")  # lands after the people read, before the reply
+        calls.append(result)
+        return result
+
+    monkeypatch.setattr(assist, "connections", racing)
+    assert "Stripe" not in json.dumps(client.get("/api/connections").json())
+    assert len(calls) == 2 and "Stripe" in json.dumps(calls[0])
