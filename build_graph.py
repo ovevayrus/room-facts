@@ -1,5 +1,6 @@
 """Rebuild Room Facts in FalkorDB from Luma and LinkedIn JSON."""
 import argparse
+import ast
 from collections import Counter, defaultdict
 import json
 import os
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from falkordb import FalkorDB
 
-from normalize import city_id, city_name, country, display_name, entity_slug, hashtags, language_name, linkedin_org_slug, linkedin_slug, slug, x_handle
+from normalize import GENERIC_IG_HASHTAGS, city_id, city_name, country, display_name, entity_slug, funding_stage, hashtags, instagram_handle, language_name, linkedin_org_slug, linkedin_slug, root_domain, slug, x_handle
 
 ROOT = Path(__file__).resolve().parent
 OPTINS = ROOT / "data" / "optins.json"
@@ -20,6 +21,7 @@ KINDS = {
     "hashtag": ("POSTED_ABOUT", "Hashtag"), "tagged_company": ("TAGGED", "Company"),
     "repo": ("CONTRIBUTED_TO", "Repo"), "gh_org": ("MEMBER_OF", "GitHubOrg"),
     "prog_lang": ("WRITES", "ProgLang"), "gh_since": ("ON_GITHUB_SINCE", "Year"),
+    "ig_hashtag": ("POSTED_ON_IG", "Hashtag"),
 }
 ORG_PATHS = {
     "industry": ("Company", "IN_INDUSTRY", "Industry", "company"),
@@ -27,6 +29,8 @@ ORG_PATHS = {
     "org_kind": ("Company", "IS_A", "OrgKind", "company"),
     "founded_year": ("Company", "FOUNDED_IN", "Year", "company"),
     "study_country": ("School", "LOCATED_IN", "Country", "school"),
+    "investor": ("Company", "BACKED_BY", "Investor", "company"),
+    "funding_stage": ("Company", "AT_STAGE", "Stage", "company"),
 }
 
 
@@ -52,7 +56,7 @@ def linkedin_match_key(row):
     return linkedin_slug(row.get("linkedin_id")) or linkedin_slug(inp.get("url") if isinstance(inp, dict) else None) or linkedin_slug(row.get("input_url"))
 
 
-def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None):
+def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None, instagram=None, crunchbase=None):
     profiles = {}
     for row in linkedin:
         if isinstance(row, dict) and "error" not in row:
@@ -99,7 +103,7 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None)
 
     people, edges, names = [], defaultdict(list), defaultdict(Counter)
     org_slugs = {"company": {}, "school": {}}
-    linkedin_people, x_people = defaultdict(list), defaultdict(list)
+    linkedin_people, x_people, instagram_people = defaultdict(list), defaultdict(list), defaultdict(list)
     matched = 0
 
     def add(kind, pid, name, *, link=None, company_id=None, **props):
@@ -153,6 +157,9 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None)
         handle_x = x_handle(guest.get("twitter_handle"))
         if handle_x:
             x_people[handle_x].append(pid)
+        handle_ig = instagram_handle(guest.get("instagram_handle"))
+        if handle_ig:
+            instagram_people[handle_ig].append(pid)
         if not profile:
             continue
         titled_school = False
@@ -217,6 +224,7 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None)
         edges[kind].append({"source_id": source_id, "id": eid})
 
     org_kinds = {"solo": "a one-person company", "government": "a government agency", "nonprofit": "a nonprofit", "public": "a public company", "giant": "companies with 10,000+ employees"}
+    company_orgs = defaultdict(list)
     for item in orgs or []:
         if not isinstance(item, dict) or item.get("error"):
             continue
@@ -225,6 +233,8 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None)
         source_id = org_slugs[source].get(linkedin_org_slug(url, source))
         if not source_id:
             continue
+        if source == "company" and isinstance(item.get("name"), str):
+            company_orgs[slug(item["name"])].append((source_id, item))
         place = country(item.get("country_code"))
         if source == "school":
             if place:
@@ -273,6 +283,66 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None)
                 if isinstance(company, dict):
                     add("tagged_company", pid, company.get("name"), link=company.get("link"))
 
+    for item in instagram or []:
+        if not isinstance(item, dict) or item.get("error"):
+            continue
+        handle = instagram_handle((item.get("input") or {}).get("url"))
+        for pid in instagram_people.get(handle, []):
+            for tag in hashtags(item.get("post_hashtags"), GENERIC_IG_HASHTAGS):
+                add("ig_hashtag", pid, tag)
+
+    selected_crunchbase = {}
+    for index, item in enumerate(crunchbase or []):
+        if not isinstance(item, dict) or item.get("error"):
+            continue
+        discovery = item.get("discovery_input") or {}
+        if isinstance(discovery, str):
+            try:
+                discovery = ast.literal_eval(discovery)
+            except (ValueError, SyntaxError):
+                continue
+        keyword = discovery.get("keyword") if isinstance(discovery, dict) else None
+        if isinstance(keyword, str) and keyword.strip().startswith("{"):
+            try:
+                keyword = ast.literal_eval(keyword)
+            except (ValueError, SyntaxError):
+                continue
+        if isinstance(keyword, dict):
+            keyword = (keyword.get("name") or keyword.get("keyword") or keyword.get("company_name")
+                       or keyword.get("company") or keyword.get("value"))
+        if not isinstance(keyword, str):
+            continue
+        cb_host = root_domain(item.get("website"))
+        cb_name = slug(item.get("name"))
+        for source_id, org in company_orgs.get(slug(keyword), []):
+            org_host = root_domain(org.get("website_simplified"))
+            same_host = bool(cb_host and cb_host == org_host)
+            same_name = bool(cb_name and cb_name == slug(org.get("name")))
+            if not same_host and not (same_name and (not cb_host or not org_host)):
+                continue
+            rank = (same_host, same_name, -index)
+            if source_id not in selected_crunchbase or rank > selected_crunchbase[source_id][0]:
+                selected_crunchbase[source_id] = (rank, item)
+
+    for source_id, (_, item) in selected_crunchbase.items():
+        for investor in item.get("investors") or []:
+            if not isinstance(investor, dict):
+                continue
+            value = investor.get("investor") or investor.get("value") or investor.get("name")
+            if isinstance(value, dict):
+                value = value.get("value") or value.get("name")
+            if isinstance(value, str) and value.strip():
+                path("investor", source_id, value)
+        stage = funding_stage(item.get("last_funding_type"))
+        if "last_funding_type" not in item:
+            rounds = item.get("funding_rounds_list") or []
+            if rounds and isinstance(rounds[0], dict):
+                title = rounds[0].get("title") or ""
+                if isinstance(title, str):
+                    stage = funding_stage(title.split(" - ", 1)[0])
+        if stage:
+            path("funding_stage", source_id, stage)
+
     known_people = {p["id"] for p in people}
     for pid, item in (github or {}).items():
         if not isinstance(item, dict) or item.get("error") or not item.get("match") or pid not in known_people:
@@ -320,7 +390,8 @@ def set_hidden(graph, pid, fact_id, hidden=True):
     elif kind in ORG_PATHS:
         source_label, rel, target_label, _ = ORG_PATHS[kind]
         first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-        graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label} {{id:$eid}}) SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
+        current_only = " WHERE r.current=true" if kind in {"investor", "funding_stage"} else ""
+        graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label} {{id:$eid}}){current_only} SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
     elif kind in KINDS:
         rel, label = KINDS[kind]
         graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{rel}]->(x:{label} {{id:$eid}}) SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
@@ -334,7 +405,7 @@ def set_hidden(graph, pid, fact_id, hidden=True):
         set_hidden(graph, pid, f"company:{bid}", hidden)
 
 
-def rebuild(luma_path, linkedin_path, graph_name, orgs_path=None, x_path=None, posts_path=None, github_path=None):
+def rebuild(luma_path, linkedin_path, graph_name, orgs_path=None, x_path=None, posts_path=None, github_path=None, instagram_path=None, crunchbase_path=None):
     luma = json.loads(Path(luma_path).read_text(encoding="utf-8"))
     if not isinstance(luma, list):
         raise ValueError("Luma input must be a JSON list")
@@ -365,7 +436,9 @@ def rebuild(luma_path, linkedin_path, graph_name, orgs_path=None, x_path=None, p
     x_profiles = optional(x_path or ROOT / "data" / "x_raw.json", list)
     posts = optional(posts_path or ROOT / "data" / "li_posts_raw.json", list)
     github = optional(github_path or ROOT / "data" / "github_raw.json", dict)
-    people, entities, edges, matched = prepare(luma, linkedin, orgs, x_profiles, posts, github)
+    instagram = optional(instagram_path or ROOT / "data" / "instagram_raw.json", list)
+    crunchbase = optional(crunchbase_path or ROOT / "data" / "crunchbase_raw.json", list)
+    people, entities, edges, matched = prepare(luma, linkedin, orgs, x_profiles, posts, github, instagram, crunchbase)
     graph = graph_client(graph_name)
     try:
         graph.delete()
@@ -421,6 +494,8 @@ if __name__ == "__main__":
     parser.add_argument("--x", default=str(ROOT / "data" / "x_raw.json"))
     parser.add_argument("--li-posts", default=str(ROOT / "data" / "li_posts_raw.json"))
     parser.add_argument("--github", default=str(ROOT / "data" / "github_raw.json"))
+    parser.add_argument("--instagram", default=str(ROOT / "data" / "instagram_raw.json"))
+    parser.add_argument("--crunchbase", default=str(ROOT / "data" / "crunchbase_raw.json"))
     parser.add_argument("--graph", default=os.getenv("GRAPH", "roomfacts"))
     args = parser.parse_args()
-    rebuild(args.luma, args.linkedin, args.graph, args.orgs, args.x, args.li_posts, args.github)
+    rebuild(args.luma, args.linkedin, args.graph, args.orgs, args.x, args.li_posts, args.github, args.instagram, args.crunchbase)

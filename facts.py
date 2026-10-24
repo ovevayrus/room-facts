@@ -3,10 +3,11 @@ from collections import defaultdict
 import os
 
 from build_graph import KINDS, ORG_PATHS
-from normalize import entity_slug, slug
+from normalize import COUNTRIES, country_phrase, entity_slug, slug
 
-ORDER = ["repo", "school", "language", "industry", "city", "gh_org", "hashtag", "study_country", "company", "org_kind", "x_since", "tagged_company", "prog_lang", "cause", "volunteer", "company_country", "founded_year", "country", "cert_issuer", "cert", "gh_since", "x_verified", "school_company", "company_company"]
+ORDER = ["repo", "investor", "school", "language", "industry", "city", "gh_org", "hashtag", "ig_hashtag", "study_country", "company", "org_kind", "funding_stage", "x_since", "tagged_company", "prog_lang", "cause", "volunteer", "company_country", "founded_year", "country", "cert_issuer", "cert", "gh_since", "x_verified", "school_company", "company_company"]
 PATH_KINDS = {"cert_issuer", *ORG_PATHS, "school_company", "company_company"}
+COUNTRY_KINDS = {"country", "company_country", "study_country"}
 LINES = {
     "school": "people here studied at {a}", "company": "people here have worked at {a}",
     "city": "people here live in {a}", "country": "people here are based in {a}",
@@ -22,6 +23,9 @@ LINES = {
     "tagged_company": "people here tagged {a} in a LinkedIn post this year", "repo": "people here have contributed to {a} on GitHub",
     "gh_org": "people here are members of the {a} GitHub org", "prog_lang": "people here write {a} on GitHub",
     "gh_since": "people here joined GitHub before 2012",
+    "ig_hashtag": "people here posted #{a} on Instagram",
+    "investor": "people here work at companies backed by {a}",
+    "funding_stage": "people here work at {a}-stage startups",
 }
 YOU_LINES = {
     "school": "You studied at {a}", "company": "You have worked at {a}",
@@ -38,6 +42,9 @@ YOU_LINES = {
     "tagged_company": "You tagged {a} in a LinkedIn post this year", "repo": "You have contributed to {a} on GitHub",
     "gh_org": "You are a member of the {a} GitHub org", "prog_lang": "You write {a} on GitHub",
     "gh_since": "You joined GitHub before 2012",
+    "ig_hashtag": "You posted #{a} on Instagram",
+    "investor": "You work at a company backed by {a}",
+    "funding_stage": "You work at a {a}-stage startup",
 }
 EVENT_LINES = {
     "school": "Someone who studied at {a}", "company": "Someone who has worked at {a}",
@@ -54,8 +61,11 @@ EVENT_LINES = {
     "tagged_company": "Someone who tagged {a} in a LinkedIn post this year", "repo": "Someone who has contributed to {a} on GitHub",
     "gh_org": "Someone who is a member of the {a} GitHub org", "prog_lang": "Someone who writes {a} on GitHub",
     "gh_since": "Someone who joined GitHub before 2012",
+    "ig_hashtag": "Someone who posted #{a} on Instagram",
+    "investor": "Someone who works at a company backed by {a}",
+    "funding_stage": "Someone who works at a {a}-stage startup",
 }
-SRC = {"school": "LinkedIn education", "company": "LinkedIn experience", "city": "LinkedIn location", "country": "LinkedIn location", "language": "LinkedIn languages", "cert": "LinkedIn certifications", "cert_issuer": "LinkedIn certifications", "volunteer": "LinkedIn volunteer experience", "cause": "LinkedIn volunteer experience", "school_company": "LinkedIn education + experience", "company_company": "LinkedIn experience", "industry": "LinkedIn company pages", "company_country": "LinkedIn company pages", "org_kind": "LinkedIn company pages", "founded_year": "LinkedIn company pages", "study_country": "LinkedIn school pages", "x_since": "X profile", "x_verified": "X profile", "hashtag": "LinkedIn posts", "tagged_company": "LinkedIn posts", "repo": "GitHub contributions", "gh_org": "GitHub organizations", "prog_lang": "GitHub repositories", "gh_since": "GitHub profile"}
+SRC = {"school": "LinkedIn education", "company": "LinkedIn experience", "city": "LinkedIn location", "country": "LinkedIn location", "language": "LinkedIn languages", "cert": "LinkedIn certifications", "cert_issuer": "LinkedIn certifications", "volunteer": "LinkedIn volunteer experience", "cause": "LinkedIn volunteer experience", "school_company": "LinkedIn education + experience", "company_company": "LinkedIn experience", "industry": "LinkedIn company pages", "company_country": "LinkedIn company pages", "org_kind": "LinkedIn company pages", "founded_year": "LinkedIn company pages", "study_country": "LinkedIn school pages", "x_since": "X profile", "x_verified": "X profile", "hashtag": "LinkedIn posts", "tagged_company": "LinkedIn posts", "repo": "GitHub contributions", "gh_org": "GitHub organizations", "prog_lang": "GitHub repositories", "gh_since": "GitHub profile", "ig_hashtag": "Instagram hashtags", "investor": "Crunchbase investors", "funding_stage": "Crunchbase funding"}
 
 
 def graph_rows(graph):
@@ -65,7 +75,8 @@ def graph_rows(graph):
     rows = graph.ro_query(query).result_set + graph.ro_query(issuer_query).result_set
     for kind, (source_label, rel, target_label, _) in ORG_PATHS.items():
         first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-        path_query = f"MATCH (p:Person)-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label}) RETURN p.id, '{rel}', '{target_label}', x.id, x.name, r.hidden, p.opted_in, null"
+        current_only = " WHERE r.current=true" if kind in {"investor", "funding_stage"} else ""
+        path_query = f"MATCH (p:Person)-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label}){current_only} RETURN p.id, '{rel}', '{target_label}', x.id, x.name, r.hidden, p.opted_in, r.current"
         rows += graph.ro_query(path_query).result_set
     return rows
 
@@ -82,7 +93,7 @@ def fact_catalog(rows, min_n=None, max_n=None):
                 by_kind[kind][eid][pid] = {"name": name, "hidden": bool(hidden), "opted": bool(opted), "label": label, "current": current}
                 break
         path_kind = "cert_issuer" if rel == "ISSUED_BY" and label == "Issuer" else next((k for k, v in ORG_PATHS.items() if rel == v[1] and label == v[2]), None)
-        if path_kind:
+        if path_kind and (path_kind not in {"investor", "funding_stage"} or current):
             old = by_kind[path_kind][eid].get(pid)
             by_kind[path_kind][eid][pid] = {"name": name, "hidden": bool(hidden) and (old["hidden"] if old else True), "opted": bool(opted), "label": label, "current": False}
 
@@ -91,6 +102,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
     def add(kind, ids, items, holders, all_holders, hidden_holders):
         fid = f"{kind}:{'>'.join(ids)}"
         names = [item["name"] for item in items]
+        if kind in COUNTRY_KINDS:
+            names[0] = COUNTRIES.get(str(names[0]).upper(), names[0])
         labels = [item["label"] for item in items]
         n = len(holders)
         eligible = min_n <= n <= max_n
@@ -99,7 +112,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
         elif kind in ORG_PATHS:
             source_label, rel, target_label, _ = ORG_PATHS[kind]
             first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-            pattern = f"MATCH (p:Person)-[r:{first}]->(s:{source_label})-[:{rel}]->(x:{target_label} {{id:$id}}) WHERE r.hidden=false"
+            current_only = " AND r.current=true" if kind in {"investor", "funding_stage"} else ""
+            pattern = f"MATCH (p:Person)-[r:{first}]->(s:{source_label})-[:{rel}]->(x:{target_label} {{id:$id}}) WHERE r.hidden=false{current_only}"
         elif kind in KINDS:
             rel, label = KINDS[kind]
             pattern = f"MATCH (p:Person)-[r:{rel}]->(x:{label} {{id:$id}}) WHERE r.hidden=false"
@@ -121,6 +135,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
         article_name = names[0]
         if article_name.lower().startswith("the ") and any("the {a}" in template.lower() for template in (line, you_line, event_line)):
             article_name = article_name[4:]
+        if kind in COUNTRY_KINDS:
+            article_name = country_phrase(article_name)
         catalog[fid] = {
             "id": fid, "kind": kind, "n": n, "opted_in": sum(1 for p in holders if holders[p]["opted"]),
             "line": line.format(a=article_name, b=names[-1]), "src": SRC[kind],
@@ -174,7 +190,7 @@ def rotation(catalog):
     groups = {}
     for kind in ORDER:
         values = sorted((f for f in catalog.values() if f["eligible"] and f["kind"] == kind), key=lambda f: (f["n"], f["id"]))
-        groups[kind] = values[:{"cert": 12, "cert_issuer": 10, "hashtag": 15}.get(kind, 20)]
+        groups[kind] = values[:{"cert": 12, "cert_issuer": 10, "hashtag": 15, "ig_hashtag": 8}.get(kind, 20)]
     result = []
     while any(groups.values()):
         for kind in ORDER:
@@ -198,9 +214,11 @@ def fact_path(fact):
     if fact["kind"] in ORG_PATHS:
         source_label, rel, _, _ = ORG_PATHS[fact["kind"]]
         first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-        return ["You", first, f"a {source_label.lower()}", rel, entities[0]["name"], f"{max(fact['n'] - 1, 0)} others"]
+        name = country_phrase(entities[0]["name"]) if fact["kind"] in COUNTRY_KINDS else entities[0]["name"]
+        return ["You", first, f"a {source_label.lower()}", rel, name, f"{max(fact['n'] - 1, 0)} others"]
     if len(entities) == 2:
         rels = ["STUDIED_AT", "WORKED_AT"] if fact["kind"] == "school_company" else ["WORKED_AT", "WORKED_AT"]
         return ["You", rels[0], entities[0]["name"], rels[1], entities[1]["name"], f"{max(fact['n'] - 1, 0)} others"]
     rel = KINDS[fact["kind"]][0]
-    return ["You", rel, entities[0]["name"], rel, f"{max(fact['n'] - 1, 0)} others"]
+    name = country_phrase(entities[0]["name"]) if fact["kind"] in COUNTRY_KINDS else entities[0]["name"]
+    return ["You", rel, name, rel, f"{max(fact['n'] - 1, 0)} others"]
