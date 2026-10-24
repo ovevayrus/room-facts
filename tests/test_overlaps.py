@@ -60,3 +60,21 @@ def test_overlaps_include_broad_facts_for_opted_in_people_only(monkeypatch):
     assert people[0]["shared"] == [{"fact_id": "field:data-science", "line": "You both studied Data Science", "n": 3},
                                    {"fact_id": "city:sf", "line": "You both live in San Francisco", "n": 43}]
     assert "tamil" not in str(people)  # a 2-person fact never shows
+
+
+def test_short_fields_survive_to_the_graph():
+    assert field_names("AI") == ["AI"] and field_names("cs") == ["CS"] and field_names("UX / HCI") == ["UX", "HCI"]
+    luma = [{"api_id": "u0", "first_name": "A", "last_name": "B", "linkedin_handle": "/in/a-0"}]
+    linkedin = [{"linkedin_id": "a-0", "education": [{"title": "School", "field": "AI"}]}]
+    assert [e["id"] for e in prepare(luma, linkedin)[2]["field"]] == ["ai"]
+
+
+def test_configured_floor_applies_to_checklist_and_overlaps(monkeypatch):
+    rows = [row(pid, "STUDIED_FIELD", "Field", "ai", "AI") for pid in ("p0", "p1", "p2")]
+    rows += [row(pid, "LIVES_IN", "City", "sf", "San Francisco") for pid in ("p0", "p1", "p2", "p3")]
+    client, catalog = overlap_app(monkeypatch, rows, opted={"p0", "p1"}, tokens={"p0": "t0"})
+    monkeypatch.setenv("MIN_N", "4")
+    assert [(f["fact_id"], f["n"]) for f in client.get("/api/person/p0/facts").json()] == [("city:sf", 4)]
+    client.cookies.set("rf_token", "t0")
+    assert client.get("/api/me/overlaps").json()["people"][0]["shared"] == [{"fact_id": "city:sf", "line": "You both live in San Francisco", "n": 4}]
+    assert all(f["n"] is None for f in client.get("/api/person/p0/facts").json() if f["fact_id"] == "field:ai")

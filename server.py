@@ -115,7 +115,7 @@ def stats():
     # Count from the catalog so hidden and pending holders are excluded exactly as on the screens.
     catalog = snapshot()["catalog"].values()
     counts = {kind: sum(1 for f in catalog if f["kind"] == kind and f["n"]) for kind in ("school", "company", "country", "city")}
-    minimum = max(3, int(os.getenv("MIN_N", "3")))
+    minimum = min_n()
     tops = {}
     for kind, key in (("school", "top_schools"), ("company", "top_companies")):
         top = sorted((f for f in catalog if f["kind"] == kind and f["n"] >= minimum), key=lambda f: (-f["n"], f["entities"][0]["name"]))[:3]
@@ -152,9 +152,13 @@ def person_detail(id: str):
     return public_person(person_row(id))
 
 
+def min_n():
+    return max(3, int(os.getenv("MIN_N", "3")))
+
+
 def publicly_listed(fact, pid):
     """The pre-opt-in checklist: facts anyone may see for this person, including ones too broad for the screens."""
-    return (fact["kind"] not in UNLISTED_KINDS and fact["n"] >= 3
+    return (fact["kind"] not in UNLISTED_KINDS and fact["n"] >= min_n()
             and pid in fact["holders"] and pid not in fact["hidden_holders"])
 
 
@@ -178,7 +182,7 @@ def person_facts(id: str, request: Request):
     values = [f for f in catalog.values() if id in f["all_holders"] and f["kind"] not in UNLISTED_KINDS and (private or publicly_listed(f, id))]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
     return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None,
-                "n": f["n"] if f["n"] >= 3 else None},
+                "n": f["n"] if f["n"] >= min_n() else None},
              **({"hidden": id in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
 
 
@@ -298,7 +302,7 @@ def overlaps(request: Request):
     if not person:
         raise HTTPException(401, "Not opted in")
     pid = person["id"]
-    mine = [f for f in snapshot()["catalog"].values() if pid in f["holders"] and f["n"] >= 3]
+    mine = [f for f in snapshot()["catalog"].values() if pid in f["holders"] and f["n"] >= min_n()]
     others = set().union(*(f["holders"] for f in mine)) - {pid}
     if not others:
         return {"people": []}

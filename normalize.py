@@ -291,9 +291,11 @@ def field_names(value):
     result = []
     for part in re.split(r"[,;/|]", value):
         name = " ".join(part.replace("&", " and ").split()).strip(" .-")
-        if not re.search(r"[A-Za-z]{3}", name):
+        if not re.search(r"[A-Za-z]{2}", name):  # keeps AI, CS, UX; drops "B.S." and "-"
             continue
-        if name.islower() or name.isupper():
+        if len(name) <= 4 and " " not in name:
+            name = name.upper() if name.islower() else name
+        elif name.islower() or name.isupper():
             name = name.title()
         if slug(name) and slug(name) not in {slug(n) for n in result}:
             result.append(name)

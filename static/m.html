@@ -28,7 +28,7 @@
     {fact_id:null,kind:"city",line_you:"You live in Oakland",n_if_eligible:null,hidden:false}
   ];
   let stage = "intro", fact = null, person = null, personFacts = [], searchTimer = 0, searchSeq = 0;
-  let mockOpted = false, mockHidden = [];
+  let mockOpted = false, mockHidden = [], resultsGen = 0;
   const app = $("#app");
   const error = message => { const el = $("#error"); if (el) el.textContent = message; };
   async function api(path, options = {}) {
@@ -136,7 +136,7 @@
     $("#leave").onclick = async () => { try { await api("/api/optout", {method:"POST"}); person = null; personFacts = []; intro(); } catch (e) { error("Could not leave Room Facts. Please try again."); } };
     personFacts = await api(`/api/person/${encodeURIComponent(person.id)}/facts`);
     reviewFacts();
-    inCommon();
+    inCommon(++resultsGen);
     let ids = [...new Set(personFacts.filter(f => f.fact_id && f.n_if_eligible != null && !f.hidden && !f.pending).map(f => f.fact_id))];
     let alternative = !scannedId || !ids.includes(scannedId);
     let section = "";
@@ -161,11 +161,11 @@
     }
     if (stage === "results") $("#matches").innerHTML = section;
   }
-  async function inCommon() {
+  async function inCommon(gen) {
     let people = [];
-    try { people = (await api("/api/me/overlaps")).people || []; } catch (e) { return; }
-    if (stage !== "results" || !people.length) return;
-    $("#common").innerHTML = `<section class="card"><h2>More in common</h2><p class="muted">Everyone who opted in and shares something with you, including broader facts.</p>` +
+    try { people = (await api("/api/me/overlaps")).people || []; } catch (e) { people = []; }
+    if (stage !== "results" || gen !== resultsGen) return;  // a newer results page owns #common
+    $("#common").innerHTML = !people.length ? "" : `<section class="card"><h2>More in common</h2><p class="muted">Everyone who opted in and shares something with you, including broader facts.</p>` +
       people.map(p => { const link = linkedinURL(p); const shared = p.shared || []; return `<div class="row">${avatar(p)}<span><strong>${esc(p.name)}</strong>${link ? `<small><a class="person-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">LinkedIn profile</a></small>` : ""}${shared.slice(0,4).map(f => `<small>${esc(f.line)} · ${esc(f.n)} people</small>`).join("")}${shared.length > 4 ? `<small>+${esc(shared.length - 4)} more</small>` : ""}</span></div>`; }).join("") + `</section>`;
   }
   function reviewFacts() {
