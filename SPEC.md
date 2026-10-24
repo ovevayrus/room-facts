@@ -126,4 +126,4 @@ Keep tokens in `data/optins.json` as a SHA-256 hash so restarts don't log people
 
 - `pytest -q` passes: normalization (aliases, suffix stripping, slugs, junk dropping, city mapping) and a privacy test on the fixture graph. The privacy test checks that no public endpoint returns a name or a fact with `n < 3`, and that `/people` returns 403 without a token. Use FalkorDB if it's reachable, and skip the DB tests with a clear message if it isn't.
 - `python build_graph.py --luma tests/fixtures/luma_sample.json --linkedin tests/fixtures/linkedin_sample.json --graph roomfacts_test` works. With no args it uses `data/`.
-- `README.md` covers the run steps (docker, build_graph, server, ngrok with `PUBLIC_BASE_URL`), a 90-second stage demo script, and `demo_queries.cypher` (5–8 queries to paste into the FalkorDB Browser that show the graph and a rare-fact path).
+- `README.md` covers the run steps (docker, build_graph, server, ngrok with `PUBLIC_BASE_URL`) and points to `demo_queries.cypher` (5–8 queries to paste into the FalkorDB Browser that show the graph and a rare-fact path).

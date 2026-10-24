@@ -71,7 +71,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 ## Next steps (pick in order)
 
 1. **Merge the Instagram/Crunchbase PR** once CI is green and Qodo has reviewed it. Then rebuild and eyeball the rotation for weird lines.
-2. **Demo prep:** rehearse the 90-second script in README.md. Have one audience member who holds a fact scan live (the owner's own facts are all under 3 holders). Open FalkorDB Browser with `demo_queries.cypher`.
+2. **Demo prep:** rehearse the 90-second stage demo (the script is kept outside the repo). Have one audience member who holds a fact scan live (the owner's own facts are all under 3 holders). Open FalkorDB Browser with `demo_queries.cypher`.
 3. **Privacy hardening before going public at the venue** (known gaps):
    - `/api/people/search` lets anyone with the URL enumerate guest names. Require ≥ 3 characters, rate-limit per IP, and return at most 5 results.
    - Opt-in has no identity check (anyone can pick anyone's name). A cheap fix: confirm by typing your own LinkedIn handle, or a one-time code shown on your Luma ticket.

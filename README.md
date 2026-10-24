@@ -25,11 +25,3 @@ Opt-in state and SHA-256 token hashes are stored in `data/optins.json`. The file
 ## Verify
 
 Run `pytest -q`. Pure normalization and fact selection tests run offline; database API tests skip with an explicit message when FalkorDB is unreachable. `demo_queries.cypher` contains Browser queries for graph inspection and rare path examples.
-
-## 90-second stage demo
-
-1. **0–15 seconds:** Show the rotating venue screen and explain that each statement is a count over a live graph, shown only when at least three guests share it.
-2. **15–30 seconds:** Open FalkorDB Browser, paste the first two queries from `demo_queries.cypher`, and show Person, School, and Company nodes and their relationships.
-3. **30–50 seconds:** Scan a fact QR code. Show the fact and its Cypher path, then search for a sample attendee by name.
-4. **50–70 seconds:** Confirm that attendee, review their facts, uncheck a wrong one, and opt in. Show how the count can change when its edge is hidden.
-5. **70–90 seconds:** Show opted-in co-holders and the anonymous ticker event, then opt out. Emphasize that names are released only to opted-in people who share the fact.
