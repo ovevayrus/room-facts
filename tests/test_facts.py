@@ -154,7 +154,7 @@ def test_event_and_you_grammar_all_kinds():
     cases = [
         ("school", "STUDIED_AT", "School", "y-combinator", "Y Combinator", "went through Y Combinator", "went through Y Combinator"),
         ("city", "LIVES_IN", "City", "london-gb", "London", "lives in London", "live in London"),
-        ("country", "BASED_IN", "Country", "GB", "United Kingdom", "is based in United Kingdom", "are based in United Kingdom"),
+        ("country", "BASED_IN", "Country", "GB", "United Kingdom", "is based in the United Kingdom", "are based in the United Kingdom"),
         ("language", "SPEAKS", "Language", "sanskrit", "Sanskrit", "speaks Sanskrit", "speak Sanskrit"),
         ("cert", "CERTIFIED", "Cert", "ai", "AI", "holds the AI certification", "hold the AI certification"),
         ("cert_issuer", "ISSUED_BY", "Issuer", "linux", "The Linux Foundation", "has certifications from The Linux Foundation", "have certifications from The Linux Foundation"),

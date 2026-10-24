@@ -141,7 +141,7 @@ def test_rebuild_skips_each_missing_new_source(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(build_graph, "graph_client", lambda name: Graph())
     monkeypatch.setattr(build_graph, "load_optins", lambda: {})
     monkeypatch.setattr(facts, "eligible_facts", lambda graph: [])
-    paths = [tmp_path / f"{name}.json" for name in ("orgs", "x", "posts", "github")]
+    paths = [tmp_path / f"{name}.json" for name in ("orgs", "x", "posts", "github", "instagram", "crunchbase")]
     build_graph.rebuild(luma, linkedin, "test", *paths)
     output = capsys.readouterr().out
     assert all(f"Skipping {path.name}: file missing." in output for path in paths)

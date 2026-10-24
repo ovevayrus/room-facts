@@ -37,7 +37,23 @@ COUNTRY_CITIES = {"united states", "india", "canada", "brazil", "argentina", "it
 US_STATES = {"california": "CA", "washington": "WA", "new york": "NY", "texas": "TX", "tennessee": "TN", "new jersey": "NJ", "illinois": "IL", "mississippi": "MS", "ohio": "OH", "indiana": "IN", "wisconsin": "WI", "hawaii": "HI", "florida": "FL", "pennsylvania": "PA", "massachusetts": "MA", "north carolina": "NC", "district of columbia": "DC"}
 METRO_STATES = {"san francisco": "CA", "seattle": "WA", "new york city": "NY", "los angeles": "CA", "boston": "MA", "washington dc": "DC", "charlotte": "NC"}
 METRO_REGIONS = {"bengaluru": "Karnataka", "delhi": "Delhi", "pune": "Maharashtra", "hyderabad": "Telangana", "london": "England", "izmir": "Izmir"}
-COUNTRIES = {"US": "United States", "IN": "India", "SG": "Singapore", "CA": "Canada", "GB": "United Kingdom", "DE": "Germany", "FR": "France", "AU": "Australia", "NL": "Netherlands"}
+COUNTRIES = {
+    "AE": "United Arab Emirates", "AL": "Albania", "AR": "Argentina", "AT": "Austria", "AU": "Australia",
+    "BD": "Bangladesh", "BE": "Belgium", "BG": "Bulgaria", "BR": "Brazil",
+    "CA": "Canada", "CH": "Switzerland", "CL": "Chile", "CM": "Cameroon", "CN": "China",
+    "CO": "Colombia", "CZ": "Czechia", "DE": "Germany", "DK": "Denmark",
+    "EG": "Egypt", "ES": "Spain", "FI": "Finland", "FR": "France",
+    "GB": "United Kingdom", "GR": "Greece", "HK": "Hong Kong", "HU": "Hungary",
+    "ID": "Indonesia", "IE": "Ireland", "IL": "Israel", "IN": "India",
+    "IT": "Italy", "JP": "Japan", "KE": "Kenya", "KR": "South Korea",
+    "KY": "Cayman Islands", "LK": "Sri Lanka", "LT": "Lithuania", "LU": "Luxembourg", "MX": "Mexico", "MY": "Malaysia",
+    "NL": "Netherlands", "NO": "Norway", "NZ": "New Zealand", "PH": "Philippines",
+    "PK": "Pakistan", "PL": "Poland", "PT": "Portugal", "RO": "Romania",
+    "RU": "Russia", "SA": "Saudi Arabia", "SE": "Sweden", "SG": "Singapore",
+    "TH": "Thailand", "TR": "Turkey", "TW": "Taiwan", "UA": "Ukraine",
+    "US": "United States", "VN": "Vietnam", "ZA": "South Africa",
+}
+THE_COUNTRIES = {"United Kingdom", "United States", "United Arab Emirates", "Netherlands", "Philippines"}
 
 
 def slug(value):
@@ -145,7 +161,13 @@ def country(value):
     code = str(value or "").strip().upper()
     if not re.fullmatch(r"[A-Z]{2}", code) or code == "US":
         return None
-    return code, COUNTRIES.get(code, code)
+    name = COUNTRIES.get(code)
+    return (code, name) if name else None
+
+
+def country_phrase(name):
+    """Add the article only where a country is used in a sentence."""
+    return f"the {name}" if name in THE_COUNTRIES else name
 
 
 def language_name(value):
@@ -158,6 +180,7 @@ def language_name(value):
 
 
 GENERIC_HASHTAGS = set("ai artificialintelligence machinelearning tech technology innovation startups startup hiring career learning linkedin opentowork jobsearch software softwareengineering programming coding datascience genai generativeai".split())
+GENERIC_IG_HASHTAGS = GENERIC_HASHTAGS | set("fyp foryou instadaily instalike instagram instagood love viral sf sanfrancisco bayarea business entrepreneur photooftheday explore reels trending".split())
 
 
 def linkedin_org_slug(value, kind):
@@ -177,7 +200,7 @@ def x_handle(value):
     return value.lstrip("@").lower() if re.fullmatch(r"@?[A-Za-z0-9_]+", value) else None
 
 
-def hashtags(value):
+def hashtags(value, skip=None):
     if isinstance(value, str):
         try:
             value = ast.literal_eval(value)
@@ -189,6 +212,46 @@ def hashtags(value):
     for item in value:
         if isinstance(item, str):
             tag = item.strip().lstrip("#").lower()
-            if re.fullmatch(r"[a-z0-9_]+", tag) and tag not in GENERIC_HASHTAGS:
+            if re.fullmatch(r"[a-z0-9_]+", tag) and tag not in (skip if skip is not None else GENERIC_HASHTAGS):
                 result.append(tag)
     return list(dict.fromkeys(result))
+
+
+def instagram_handle(value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    match = re.fullmatch(r"(?:https?://)?(?:www\.)?instagram\.com/([A-Za-z0-9._]+)(?:/)?(?:[?#].*)?", value, re.I)
+    if match:
+        return match.group(1).lower()
+    return value.lstrip("@").lower() if re.fullmatch(r"@?[A-Za-z0-9._]+", value) else None
+
+
+def root_domain(value):
+    """Compare website hosts, ignoring www and ordinary subdomains."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = urlparse(value.strip() if "://" in value else "https://" + value.strip())
+    host = (parsed.hostname or "").lower().strip(".")
+    parts = host.split(".")
+    if len(parts) < 2 or not all(parts):
+        return None
+    if len(parts) >= 3 and ".".join(parts[-2:]) in {"github.io", "vercel.app", "netlify.app", "wordpress.com"}:
+        return ".".join(parts[-3:])
+    if len(parts) >= 3 and parts[-1] in {"uk", "au", "jp", "nz", "za", "br", "in"} and parts[-2] in {"co", "com", "org", "net", "ac"}:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
+def funding_stage(value):
+    """Keep only funding round names that describe a useful startup stage."""
+    if not isinstance(value, str):
+        return None
+    name = re.sub(r"\s+round$", "", re.sub(r"\s+", " ", value.strip()), flags=re.I).strip()
+    folded = slug(name)
+    if folded == "pre-seed":
+        return "Pre-Seed"
+    if folded == "seed":
+        return "Seed"
+    match = re.fullmatch(r"series-([a-z])", folded)
+    return f"Series {match.group(1).upper()}" if match else None
