@@ -236,3 +236,21 @@ def test_certifications_never_listed_and_stay_pending(monkeypatch, owner):
     client.cookies.set("rf_token", response.cookies["rf_token"])
     private = client.get("/api/person/p0/facts").json()
     assert [(f["fact_id"], f["pending"]) for f in private] == [("school:uni", False)]
+
+
+def test_certifications_cannot_be_approved_or_kept_approved(monkeypatch):
+    rows = [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
+    rows += [row(pid, "CERTIFIED", "Cert", "aws", "AWS Cloud Practitioner") for pid in ("p0", "p1", "p3")]
+    rows = [(*r[:6], r[0] == "p0", *r[7:]) for r in rows]  # p0 opted in before this change
+    token = hashlib.sha256(b"own-token").hexdigest()
+    saved = {"p0": {"hidden": [], "approved": ["cert:aws", "school:uni"], "tokens": [token]}}
+    client = optin_app(monkeypatch, rows, saved)
+    catalog = server.snapshot(force=True)["catalog"]
+    assert "p0" not in catalog["cert:aws"]["holders"] and catalog["cert:aws"]["n"] == 2 and not catalog["cert:aws"]["eligible"]
+    assert "p0" in catalog["school:uni"]["holders"]
+
+    client.cookies.set("rf_token", "own-token")
+    assert client.post("/api/me/facts", json={"show": ["cert:aws"]}).status_code == 422
+    client.cookies.clear()
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["approved"] == ["school:uni"]

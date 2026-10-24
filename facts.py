@@ -233,7 +233,9 @@ def fact_catalog(rows, min_n=None, max_n=None, hidden_combos=None):
         for eid, holders in by_kind[kind].items():
             sample = next(iter(holders.values()))
             fid = f"{kind}:{eid}"
-            visible = {p: value for p, value in holders.items() if not value["hidden"] and fid not in hidden_combos.get(p, ())}
+            # Opted-in people never review unlisted kinds, so they never count toward them, whatever their saved state says.
+            visible = {p: value for p, value in holders.items() if not value["hidden"] and fid not in hidden_combos.get(p, ())
+                       and not (kind in UNLISTED_KINDS and value["opted"])}
             add(kind, [eid], [sample], visible, holders, set(holders) - set(visible))
     for kind in COMBO_PATHS:
         # Keep hidden, sub-threshold combos for personal review; add() enforces the public floor.

@@ -158,6 +158,10 @@ def publicly_listed(fact, pid):
             and pid in fact["holders"] and pid not in fact["hidden_holders"])
 
 
+def listable(fid):
+    return str(fid).partition(":")[0] not in UNLISTED_KINDS
+
+
 def apply_hidden(g, pid, hidden):
     g.query("MATCH (p:Person {id:$pid})-[r]->() SET r.hidden=false", {"pid": pid})
     for fid in hidden:
@@ -205,7 +209,7 @@ def optin(body: OptInBody, request: Request, response: Response):
             # public checklist or approved before stays pending until the owner reviews it.
             shown = {f["id"] for f in catalog.values() if publicly_listed(f, pid)}
             hidden = set(previous.get("hidden", [])) | set(body.hide)
-            approved = (set(previous.get("approved", [])) | shown) - hidden
+            approved = {fid for fid in (set(previous.get("approved", [])) | shown) - hidden if listable(fid)}
             pending = (set(previous.get("pending", [])) | (mine - approved)) - hidden
         g = graph()
         apply_hidden(g, pid, hidden)
@@ -238,6 +242,8 @@ def review_facts(body: FactReviewBody, request: Request):
     hide, show = set(body.hide), set(body.show)
     if hide & show:
         raise HTTPException(422, "A fact cannot be both hidden and shown")
+    if not all(listable(fid) for fid in show):
+        raise HTTPException(422, "Certifications can't be approved")
     with _lock:
         saved = load_optins()
         state = saved.get(pid, {})
