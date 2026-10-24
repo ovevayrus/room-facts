@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from build_graph import OPTINS, graph_client, load_optins, set_hidden
-from facts import eligible_facts, fact_catalog, fact_path, graph_rows, public_fact, rotation
+from facts import eligible_facts, fact_catalog, fact_path, graph_rows, hidden_combos_from_optins, public_fact, rotation
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Room Facts")
@@ -35,7 +35,7 @@ def now_iso():
 def snapshot(force=False):
     with _lock:
         if force or time.monotonic() - _cache["at"] >= 5:
-            catalog = fact_catalog(graph_rows(graph()))
+            catalog = fact_catalog(graph_rows(graph()), hidden_combos=hidden_combos_from_optins(load_optins()))
             _cache.update(at=time.monotonic(), catalog=catalog, facts=[public_fact(f) for f in rotation(catalog)], generated_at=now_iso())
         return _cache
 
@@ -153,12 +153,16 @@ def person_detail(id: str):
 
 
 @app.get("/api/person/{id}/facts")
-def person_facts(id: str):
+def person_facts(id: str, request: Request):
     person_row(id)
     catalog = snapshot()["catalog"]
-    values = [f for f in catalog.values() if id in f["all_holders"]]
+    owner = auth_person(request)
+    private = bool(owner and owner["id"] == id)
+    values = [f for f in catalog.values() if id in f["all_holders"] and
+              (private or (f["eligible"] and f["n"] >= 3 and id in f["holders"] and id not in f["hidden_holders"]))]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
-    return [{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None, "hidden": id in f["hidden_holders"]} for f in values]
+    return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None},
+             **({"hidden": id in f["hidden_holders"]} if private else {})} for f in values]
 
 
 class OptInBody(BaseModel):

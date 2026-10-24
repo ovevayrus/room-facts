@@ -129,6 +129,7 @@ def test_rebuild_creates_issuer_relationship_and_graph_rows_reads_it(tmp_path, m
 
 def test_rotation_caps_leave_catalog_facts_available(monkeypatch):
     import server
+    from fastapi import Request
     rows = []
     for kind, rel, label, count in (("cert", "CERTIFIED", "Cert", 14), ("cert_issuer", "ISSUED_BY", "Issuer", 12), ("language", "SPEAKS", "Language", 2)):
         for index in range(count):
@@ -144,7 +145,7 @@ def test_rotation_caps_leave_catalog_facts_available(monkeypatch):
     monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     monkeypatch.setattr(server, "person_row", lambda pid: {"id": pid})
     assert server.fact_detail(left_out["id"])["id"] == left_out["id"]
-    assert any(f["fact_id"] == left_out["id"] for f in server.person_facts("cert-8-0"))
+    assert any(f["fact_id"] == left_out["id"] for f in server.person_facts("cert-8-0", Request({"type": "http", "headers": []})))
     monkeypatch.setattr(server, "_events", [{"at": "2026-10-24T00:00:00+00:00", "text": "A capped fact", "fact_id": left_out["id"]}])
     assert server.events() == [{"at": "2026-10-24T00:00:00+00:00", "text": "A capped fact"}]
 

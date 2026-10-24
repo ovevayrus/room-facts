@@ -61,6 +61,7 @@ def test_rotation_spreads_counts_keeps_broad_facts_in_catalog():
 
 def test_country_kinds_are_available_off_rotation(monkeypatch):
     import server
+    from fastapi import Request
 
     rows = [row(f"based-{i}", "BASED_IN", "Country", "GB", "United Kingdom") for i in range(3)]
     rows += [row(f"study-{i}", "LOCATED_IN", "Country", "FR", "France") for i in range(3)]
@@ -72,7 +73,7 @@ def test_country_kinds_are_available_off_rotation(monkeypatch):
     monkeypatch.setattr(server, "person_row", lambda pid: {"id": pid})
     assert server.fact_detail("country:GB")["n"] == 3
     assert server.fact_detail("study_country:FR")["n"] == 3
-    assert any(f["fact_id"] == "study_country:FR" for f in server.person_facts("study-0"))
+    assert any(f["fact_id"] == "study_country:FR" for f in server.person_facts("study-0", Request({"type": "http", "headers": []})))
 
 
 def test_interest_score_uses_metadata_and_stable_tiebreak():
@@ -155,7 +156,7 @@ def test_repo_lang_combo_requires_both_parents_to_be_larger():
     assert hidden_combo["n"] == 2 and not hidden_combo["eligible"] and "p0" in hidden_combo["hidden_holders"]
 
 
-def test_graph_reads_current_combo_paths_and_hide_uses_fixed_edges():
+def test_graph_reads_current_combo_paths_without_hiding_constituent_edges():
     class Result:
         def __init__(self, rows):
             self.result_set = rows
@@ -180,7 +181,5 @@ def test_graph_reads_current_combo_paths_and_hide_uses_fixed_edges():
     assert len([q for q in graph.reads if "<-[a:STUDIED_AT]" in q]) == len(COMBO_PATHS)
     assert all("WHERE b.current=true" in q for q in graph.reads if "<-[a:STUDIED_AT]" in q)
     set_hidden(graph, "p", "school_industry:example-u>robotics")
-    assert any("IN_INDUSTRY" in query and "r.current=true" in query for query, _ in graph.writes)
     set_hidden(graph, "p", "repo_lang:org/repo>rust")
-    assert any("CONTRIBUTED_TO" in query for query, _ in graph.writes)
-    assert any("WRITES" in query for query, _ in graph.writes)
+    assert graph.writes == []

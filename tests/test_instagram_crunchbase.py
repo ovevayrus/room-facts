@@ -209,8 +209,9 @@ def test_server_uses_new_fact_lines_without_new_response_fields(monkeypatch):
     detail = server.fact_detail("investor:y-combinator")
     assert set(detail) == {"id", "kind", "n", "opted_in", "line", "src", "pattern", "entities", "path"}
     assert detail["path"] == ["You", "WORKED_AT", "a company", "BACKED_BY", "Y Combinator", "2 others"]
-    personal = server.person_facts("u0")
-    assert personal == [{"fact_id": "investor:y-combinator", "kind": "investor", "line_you": "You work at a company backed by Y Combinator", "n_if_eligible": 3, "hidden": False}]
+    from fastapi import Request
+    personal = server.person_facts("u0", Request({"type": "http", "headers": []}))
+    assert personal == [{"fact_id": "investor:y-combinator", "kind": "investor", "line_you": "You work at a company backed by Y Combinator", "n_if_eligible": 3}]
     monkeypatch.setattr(server, "_events", [{"at": "2026-10-24T00:00:00+00:00", "text": catalog["investor:y-combinator"]["line_event"] + " just opted in", "fact_id": "investor:y-combinator"}])
     assert server.events()[0]["text"] == "Someone who works at a company backed by Y Combinator just opted in"
 

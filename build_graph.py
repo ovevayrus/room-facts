@@ -381,7 +381,7 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None,
 
 
 def set_hidden(graph, pid, fact_id, hidden=True):
-    """Hide the graph edge(s) that form one fact, using fixed query fragments."""
+    """Hide ordinary graph edges; combo suppression lives in optins.json."""
     kind, sep, ids = str(fact_id).partition(":")
     if not sep:
         return
@@ -395,26 +395,9 @@ def set_hidden(graph, pid, fact_id, hidden=True):
     elif kind in KINDS:
         rel, label = KINDS[kind]
         graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{rel}]->(x:{label} {{id:$eid}}) SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
-    elif kind == "school_company" and ">" in ids:
-        sid, cid = ids.split(">", 1)
-        set_hidden(graph, pid, f"school:{sid}", hidden)
-        set_hidden(graph, pid, f"company:{cid}", hidden)
-    elif kind == "company_company" and ">" in ids:
-        aid, bid = ids.split(">", 1)
-        set_hidden(graph, pid, f"company:{aid}", hidden)
-        set_hidden(graph, pid, f"company:{bid}", hidden)
-    elif kind in {"school_industry", "school_stage", "school_investor"} and ">" in ids:
-        sid, target_id = ids.split(">", 1)
-        rel, label = {"school_industry": ("IN_INDUSTRY", "Industry"),
-                      "school_stage": ("AT_STAGE", "Stage"),
-                      "school_investor": ("BACKED_BY", "Investor")}[kind]
-        set_hidden(graph, pid, f"school:{sid}", hidden)
-        graph.query(f"MATCH (p:Person {{id:$pid}})-[r:WORKED_AT]->(:Company)-[:{rel}]->(:{label} {{id:$eid}}) WHERE r.current=true SET r.hidden=$hidden",
-                    {"pid": pid, "eid": target_id, "hidden": hidden})
-    elif kind == "repo_lang" and ">" in ids:
-        rid, lid = ids.split(">", 1)
-        set_hidden(graph, pid, f"repo:{rid}", hidden)
-        set_hidden(graph, pid, f"prog_lang:{lid}", hidden)
+    elif kind in {"school_company", "company_company", "school_industry", "school_stage", "school_investor", "repo_lang"}:
+        # Combo hides live in optins.json and are applied by fact_catalog.
+        return
 
 
 def rebuild(luma_path, linkedin_path, graph_name, orgs_path=None, x_path=None, posts_path=None, github_path=None, instagram_path=None, crunchbase_path=None):

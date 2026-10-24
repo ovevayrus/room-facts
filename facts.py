@@ -13,6 +13,7 @@ COMBO_PATHS = {
     "school_investor": ("BACKED_BY", "Investor"),
 }
 COMBO_KINDS = {*COMBO_PATHS, "repo_lang"}
+SEPARATE_HIDDEN_COMBOS = {*COMBO_KINDS, "school_company", "company_company"}
 ORDER = ["school_industry", "school_stage", "school_investor", "repo_lang", "repo", "investor", "school", "language", "industry", "city", "gh_org", "hashtag", "ig_hashtag", "company", "tagged_company", "prog_lang", "school_company", "company_company", "volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year", "cert", "cert_issuer", "cause", "company_country", "x_verified", "study_country", "country"]
 PATH_KINDS = {"cert_issuer", *ORG_PATHS, "school_company", "company_company", *COMBO_KINDS}
 COUNTRY_KINDS = {"country", "company_country", "study_country"}
@@ -135,9 +136,16 @@ def graph_rows(graph):
     return rows
 
 
-def fact_catalog(rows, min_n=None, max_n=None):
+def hidden_combos_from_optins(optins):
+    """Read combo-only suppressions without changing their shared graph edges."""
+    return {pid: {fid for fid in state.get("hidden", []) if str(fid).partition(":")[0] in SEPARATE_HIDDEN_COMBOS}
+            for pid, state in optins.items() if isinstance(state, dict)}
+
+
+def fact_catalog(rows, min_n=None, max_n=None, hidden_combos=None):
     min_n = max(3, int(min_n if min_n is not None else os.getenv("MIN_N", "3")))
     max_n = int(max_n if max_n is not None else os.getenv("MAX_N", "25"))
+    hidden_combos = hidden_combos or {}
     by_kind = defaultdict(lambda: defaultdict(dict))
     investor_companies = defaultdict(set)
     for row in rows:
@@ -228,7 +236,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
         # Keep hidden, sub-threshold combos for personal review; add() enforces the public floor.
         parent_kind = {"school_industry": "industry", "school_stage": "funding_stage", "school_investor": "investor"}[kind]
         for (sid, tid), holders in by_kind[kind].items():
-            visible = {p: value for p, value in holders.items() if not value["hidden"]}
+            fid = f"{kind}:{sid}>{tid}"
+            visible = {p: value for p, value in holders.items() if not value["hidden"] and fid not in hidden_combos.get(p, ())}
             school_visible = {p for p, value in by_kind["school"][sid].items() if not value["hidden"]}
             target_visible = {p for p, value in by_kind[parent_kind][tid].items() if not value["hidden"]}
             if len(visible) >= min(len(school_visible), len(target_visible)):
@@ -239,7 +248,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
     for rid, repo_holders in by_kind["repo"].items():
         for lid, lang_holders in by_kind["prog_lang"].items():
             shared = set(repo_holders) & set(lang_holders)
-            visible = {p: repo_holders[p] for p in shared if not repo_holders[p]["hidden"] and not lang_holders[p]["hidden"]}
+            fid = f"repo_lang:{rid}>{lid}"
+            visible = {p: repo_holders[p] for p in shared if not repo_holders[p]["hidden"] and not lang_holders[p]["hidden"] and fid not in hidden_combos.get(p, ())}
             repo_visible = sum(not value["hidden"] for value in repo_holders.values())
             lang_visible = sum(not value["hidden"] for value in lang_holders.values())
             if not shared or len(visible) >= min(repo_visible, lang_visible):
@@ -254,7 +264,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
             shared = set(school_holders) & set(company_holders)
             if not shared:
                 continue
-            visible = {p: school_holders[p] for p in shared if not school_holders[p]["hidden"] and not company_holders[p]["hidden"]}
+            fid = f"school_company:{sid}>{cid}"
+            visible = {p: school_holders[p] for p in shared if not school_holders[p]["hidden"] and not company_holders[p]["hidden"] and fid not in hidden_combos.get(p, ())}
             hidden = shared - set(visible)
             add("school_company", [sid, cid], [next(iter(school_holders.values())), next(iter(company_holders.values()))], visible, shared, hidden)
     companies = sorted(by_kind["company"])
@@ -264,12 +275,15 @@ def fact_catalog(rows, min_n=None, max_n=None):
             shared = set(a) & set(b)
             if not shared:
                 continue
-            visible = {p: a[p] for p in shared if not a[p]["hidden"] and not b[p]["hidden"]}
+            fid = f"company_company:{aid}>{bid}"
+            visible = {p: a[p] for p in shared if not a[p]["hidden"] and not b[p]["hidden"] and fid not in hidden_combos.get(p, ())}
             add("company_company", [aid, bid], [next(iter(a.values())), next(iter(b.values()))], visible, shared, shared - set(visible))
 
     candidates = [f for f in catalog.values() if f["eligible"]]
-    # A path wins over a single fact for an identical holder set.
-    candidates.sort(key=lambda f: (-int(f["kind"] in PATH_KINDS), ORDER.index(f["kind"]), f["id"]))
+    # Prefer specific tiers; only use path depth to break ties within a tier.
+    candidates.sort(key=lambda f: (ROTATION_CAPS.get(f["kind"], 20) == 0,
+                                   -(3 if f["kind"] in TIER_1 else 2 if f["kind"] in TIER_2 else 1),
+                                   -int(f["kind"] in PATH_KINDS), ORDER.index(f["kind"]), f["id"]))
     seen = set()
     for fact in candidates:
         signature = frozenset(fact["holders"])
@@ -327,7 +341,9 @@ def public_fact(fact):
 
 
 def eligible_facts(graph):
-    return [public_fact(f) for f in rotation(fact_catalog(graph_rows(graph)))]
+    from build_graph import load_optins
+
+    return [public_fact(f) for f in rotation(fact_catalog(graph_rows(graph), hidden_combos=hidden_combos_from_optins(load_optins())))]
 
 
 def fact_path(fact):
