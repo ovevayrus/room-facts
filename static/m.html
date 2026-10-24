@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Room Facts · Join</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root{--venue:#0D0E11;--panel:#16181D;--ink:#EEF0F4;--muted:#949AA6;--line:#2A2D35;--accent:#FFD33D;--accent-ink:#1E1600;--f-num:"Big Shoulders Display",Impact,"Arial Narrow",sans-serif;--f-text:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;--f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--venue);color:var(--ink);font:16px/1.45 var(--f-text)}button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:wait}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}main{width:min(100%,520px);margin:auto;padding:24px 18px 64px}.brand{font:700 .72rem var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:28px}.step{font:700 .72rem var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}h1{font:900 clamp(3.5rem,18vw,6rem)/.86 var(--f-num);text-transform:uppercase;letter-spacing:.01em;margin:10px 0 22px}h2{font:800 2.2rem/.95 var(--f-num);text-transform:uppercase;margin:0 0 10px}.lead{font-size:1.12rem;margin:0 0 24px}.muted,.note{color:var(--muted)}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin:0 0 20px}.hero{background:#FF5A1F;color:#1B0A00;border:0}.hero .number{font:900 6rem/.8 var(--f-num);display:block;margin:6px 0}.hero .line{font-weight:800;font-size:1.55rem;line-height:1.1}.chips{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:18px}.chip{font:700 .68rem var(--f-mono);padding:7px 9px;border:1px solid currentColor;border-radius:99px}.arrow{font:700 .8rem var(--f-mono)}.button{display:block;width:100%;min-height:54px;border-radius:10px;padding:12px 16px;text-align:center;font-weight:800;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);margin:10px 0}.button.secondary{background:transparent;color:var(--ink);border-color:var(--line)}.search{width:100%;min-height:54px;background:var(--panel);color:var(--ink);border:1px solid var(--muted);border-radius:10px;padding:12px 14px;font-size:1.1rem}.row{width:100%;display:flex;align-items:center;gap:12px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:68px;color:var(--ink);margin:8px 0}.avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:var(--line);flex:none}.avatar.fallback{display:grid;place-items:center;font:800 1.5rem var(--f-num);color:var(--accent)}.row small{display:block;color:var(--muted);font-size:.75rem}.check{display:flex;gap:12px;align-items:flex-start;padding:15px 0;border-bottom:1px solid var(--line)}.check input{width:23px;height:23px;accent-color:var(--accent);flex:none;margin:2px 0 0}.check span{flex:1}.check small{display:block;color:var(--muted);margin-top:3px}.error{color:#FF9C9C;min-height:1.5em;margin:10px 0}.person-link{color:var(--accent);font-weight:700;overflow-wrap:anywhere}.count{font:900 3.5rem/.9 var(--f-num);color:var(--accent);margin:0 0 12px}.divider{height:1px;background:var(--line);margin:20px 0}@media(min-width:600px){main{padding-top:40px}}
+</style></head><body><main><div class="brand">Room Facts / Connect in the room</div><div id="app" aria-live="polite"></div></main>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+  const mock = new URLSearchParams(location.search).get("mock") === "1";
+  const scannedId = new URLSearchParams(location.search).get("f");
+  const sampleFacts = [
+    {id:"school:uc-berkeley",kind:"school",n:4,opted_in:2,line:"people here studied at UC Berkeley",src:"LinkedIn education",pattern:"(p)-[:STUDIED_AT]->(s:School)",path:["You","STUDIED_AT","UC Berkeley","STUDIED_AT","3 others"]},
+    {id:"company:acme",kind:"company",n:3,opted_in:1,line:"people here have worked at Acme",src:"LinkedIn experience",pattern:"(p)-[:WORKED_AT]->(c:Company)",path:["You","WORKED_AT","Acme","WORKED_AT","2 others"]},
+    {id:"school:stanford",kind:"school",n:3,opted_in:1,line:"people here studied at Stanford",src:"LinkedIn education",pattern:"(p)-[:STUDIED_AT]->(s:School)",path:["You","STUDIED_AT","Stanford","STUDIED_AT","2 others"]}
+  ];
+  const samplePeople = [
+    {id:"p1",name:"Alex Rivera",avatar:"",linkedin:"alex-rivera"},
+    {id:"p2",name:"Jordan Kim",avatar:"",linkedin:"jordan-kim"},
+    {id:"p3",name:"Sam Patel",avatar:"",linkedin:"sam-patel"}
+  ];
+  const samplePersonFacts = [
+    {fact_id:"school:uc-berkeley",kind:"school",line_you:"You studied at UC Berkeley",n_if_eligible:4,hidden:false},
+    {fact_id:"company:acme",kind:"company",line_you:"You have worked at Acme",n_if_eligible:3,hidden:false},
+    {fact_id:null,kind:"city",line_you:"You live in Oakland",n_if_eligible:null,hidden:false}
+  ];
+  let stage = "intro", fact = null, person = null, personFacts = [], searchTimer = 0, searchSeq = 0;
+  let mockOpted = false, mockHidden = [];
+  const app = $("#app");
+  const error = message => { const el = $("#error"); if (el) el.textContent = message; };
+  async function api(path, options = {}) {
+    if (mock) return mockApi(path, options);
+    const response = await fetch(path, { credentials:"same-origin", ...options });
+    if (!response.ok) { const e = new Error(`Request failed (${response.status})`); e.status = response.status; throw e; }
+    return response.json();
+  }
+  function mockApi(path, options) {
+    const raw = decodeURIComponent(path);
+    if (raw === "/api/me") { if (mockOpted) return Promise.resolve(person || samplePeople[0]); const e = new Error("Not opted in"); e.status = 401; return Promise.reject(e); }
+    if (raw.startsWith("/api/fact/") && raw.endsWith("/people")) {
+      const id = raw.slice(10, -7);
+      const ownFacts = person?.id === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts;
+      if (!mockOpted || !ownFacts.some(f => f.fact_id === id && f.n_if_eligible != null) || mockHidden.includes(id)) { const e = new Error("Not eligible"); e.status = 403; return Promise.reject(e); }
+      const other = person?.id === "p2" ? samplePeople[0] : samplePeople[1];
+      return Promise.resolve({people:[{name:other.name,avatar:other.avatar,linkedin_url:linkedinURL(other)}],hidden_count:id === "company:acme" ? 1 : 2});
+    }
+    if (raw.startsWith("/api/fact/")) { const item = sampleFacts.find(f => f.id === raw.slice(10)); if (item) return Promise.resolve(item); const e = new Error("Fact not found"); e.status = 404; return Promise.reject(e); }
+    if (raw.startsWith("/api/people/search")) { const q = new URL(path, location.href).searchParams.get("q").toLowerCase(); return Promise.resolve(samplePeople.filter(p => p.name.toLowerCase().includes(q)).slice(0,8)); }
+    if (raw.startsWith("/api/person/") && raw.endsWith("/facts")) return Promise.resolve((raw.slice(12, -6) === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts).map(f => ({...f,hidden:mockHidden.includes(f.fact_id)})));
+    if (raw.startsWith("/api/person/")) return Promise.resolve(samplePeople.find(p => p.id === raw.slice(12)) || samplePeople[0]);
+    if (raw === "/api/optin") { mockOpted = true; mockHidden = JSON.parse(options.body).hide; return Promise.resolve({ok:true,person}); }
+    if (raw === "/api/optout") { mockOpted = false; mockHidden = []; return Promise.resolve({ok:true}); }
+    return Promise.reject(new Error("Unknown mock endpoint"));
+  }
+  function heading(label, title, lead = "") { return `<div class="step">${esc(label)}</div><h1>${esc(title)}</h1>${lead ? `<p class="lead">${esc(lead)}</p>` : ""}`; }
+  function avatar(p) { return p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="">` : `<span class="avatar fallback" aria-hidden="true">${esc((p.name || "?")[0])}</span>`; }
+  function linkedinURL(p) {
+    if (p.linkedin_url) { try { const u = new URL(p.linkedin_url); return u.protocol === "https:" && (u.hostname === "linkedin.com" || u.hostname.endsWith(".linkedin.com")) ? u.href : ""; } catch { return ""; } }
+    const slug = String(p.linkedin || "").replace(/^\/?in\//, "").replace(/^\/+|\/+$/g, "");
+    return slug && /^[a-z\d_-]+$/i.test(slug) ? `https://www.linkedin.com/in/${encodeURIComponent(slug)}/` : "";
+  }
+  function pathChips(path) {
+    if (!Array.isArray(path)) return "";
+    return `<div class="chips">${path.map((part,i) => `${i ? `<span class="arrow">${i === path.length - 1 ? "←" : "→"}</span>` : ""}<span class="chip">${esc(part)}</span>`).join("")}</div>`;
+  }
+  function intro() {
+    stage = "intro";
+    app.innerHTML = heading("01 / A fact in this room", fact ? "Is this you?" : "Room Facts", fact ? "Find yourself, confirm your facts, and meet the people who share this one." : "Find yourself, confirm your facts, and meet people with something in common.") +
+      (fact ? `<div class="card hero"><span class="number">${esc(fact.n)}</span><div class="line">${esc(fact.line)}</div>${pathChips(fact.path)}</div>` : `<div class="card hero"><h2>Real people. Shared stories.</h2><p>Names stay hidden until you opt in.</p></div>`) +
+      `<button class="button" id="start">Is this you?</button><p class="note">Your name appears to other holders only after you opt in.</p><p class="error" id="error" role="alert"></p>`;
+    $("#start").onclick = search;
+  }
+  function search() {
+    stage = "search";
+    app.innerHTML = heading("02 / Find yourself", "Search your name", "Start typing your name or LinkedIn handle.") +
+      `<label for="name">Name</label><input class="search" id="name" autocomplete="name" placeholder="Your name" type="search"><div id="results"></div><p class="error" id="error" role="alert"></p><button class="button secondary" id="back">Back</button>`;
+    $("#back").onclick = intro;
+    $("#name").oninput = () => { clearTimeout(searchTimer); const q = $("#name").value.trim(); const seq = ++searchSeq; $("#results").innerHTML = q.length < 2 ? `<p class="muted">Enter at least 2 characters.</p>` : `<p class="muted">Searching…</p>`; if (q.length >= 2) searchTimer = setTimeout(() => runSearch(q, seq), 250); };
+    $("#name").focus();
+  }
+  async function runSearch(q, seq) {
+    try {
+      const rows = await api(`/api/people/search?q=${encodeURIComponent(q)}`);
+      if (stage !== "search" || seq !== searchSeq) return;
+      if (!Array.isArray(rows)) throw new Error("Invalid search response");
+      $("#results").innerHTML = rows.length ? rows.slice(0,8).map((p,i) => `<button class="row" data-index="${i}">${avatar(p)}<span>${esc(p.name)}</span></button>`).join("") : `<p class="muted">No matches found. Try another spelling.</p>`;
+      $("#results").onclick = async e => { const button = e.target.closest("button[data-index]"); if (button) await choose(rows[+button.dataset.index]); };
+    } catch (e) { error("Search is unavailable. Please try again."); }
+  }
+  async function choose(result) {
+    try { person = await api(`/api/person/${encodeURIComponent(result.id)}`); confirmPerson(); }
+    catch (e) { error("Could not load this person. Please try again."); }
+  }
+  function confirmPerson() {
+    stage = "confirm";
+    const link = linkedinURL(person);
+    app.innerHTML = heading("03 / Confirm", "Is this you?", "Check this profile before continuing.") +
+      `<div class="card"><div class="row" style="border:0;padding:0">${avatar(person)}<strong>${esc(person.name)}</strong></div>${link ? `<p><a class="person-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(link.replace(/^https:\/\/(www\.)?/, ""))}</a></p>` : ""}</div>` +
+      `<button class="button" id="yes">Yes, that's me</button><button class="button secondary" id="no">Not me</button><p class="error" id="error" role="alert"></p>`;
+    $("#yes").onclick = loadPersonFacts; $("#no").onclick = search;
+  }
+  async function loadPersonFacts() {
+    try { const rows = await api(`/api/person/${encodeURIComponent(person.id)}/facts`); if (!Array.isArray(rows)) throw new Error("Invalid facts response"); personFacts = rows; yourFacts(); }
+    catch (e) { error("Could not load your facts. Please try again."); }
+  }
+  function yourFacts() {
+    stage = "facts";
+    app.innerHTML = heading("04 / Your facts", "Choose what counts", "Uncheck anything that's wrong. It won't count.") +
+      `<div class="card">${personFacts.length ? personFacts.map((f,i) => `<label class="check"><input type="checkbox" data-index="${i}" checked><span>${esc(f.line_you)}${f.n_if_eligible != null ? `<small>${esc(f.n_if_eligible)} people share this fact</small>` : ""}</span></label>`).join("") : `<p class="muted">No facts found yet. You can still join.</p>`}</div>` +
+      `<button class="button" id="optin">Opt in and see who else</button><button class="button secondary" id="back">Back</button><p class="error" id="error" role="alert"></p>`;
+    $("#back").onclick = confirmPerson;
+    $("#optin").onclick = optIn;
+  }
+  async function optIn() {
+    const hide = personFacts.filter((f,i) => f.fact_id && !app.querySelector(`input[data-index="${i}"]`).checked).map(f => f.fact_id);
+    const button = $("#optin"); button.disabled = true;
+    try {
+      await api("/api/optin", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({person_id:person.id,hide})});
+      await results();
+    } catch (e) { button.disabled = false; error("Could not opt in. Please try again."); }
+  }
+  async function factSection(id, people) {
+    const detail = await api(`/api/fact/${encodeURIComponent(id)}`);
+    const data = people || await api(`/api/fact/${encodeURIComponent(id)}/people`);
+    const rows = Array.isArray(data.people) ? data.people : [];
+    return `<section class="card"><p class="count">${esc(detail.n)}</p><h2>${esc(detail.line)}</h2>${rows.length ? rows.map(p => { const link = linkedinURL(p); return `<div class="row">${avatar(p)}<span><strong>${esc(p.name)}</strong>${link ? `<small><a class="person-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">LinkedIn profile</a></small>` : ""}</span></div>`; }).join("") : `<p class="muted">No one else has opted in yet.</p>`}<p class="note">+${esc(data.hidden_count ?? 0)} haven't opted in yet</p></section>`;
+  }
+  async function results() {
+    stage = "results";
+    app.innerHTML = heading("05 / People in this room", "You're in", "Names appear only for people who also opted in.") + `<div id="matches"><p class="muted">Loading people…</p></div><button class="button secondary" id="leave">Leave Room Facts</button><p class="error" id="error" role="alert"></p>`;
+    $("#leave").onclick = async () => { try { await api("/api/optout", {method:"POST"}); person = null; personFacts = []; intro(); } catch (e) { error("Could not leave Room Facts. Please try again."); } };
+    personFacts = await api(`/api/person/${encodeURIComponent(person.id)}/facts`);
+    let ids = [...new Set(personFacts.filter(f => f.fact_id && f.n_if_eligible != null && !f.hidden).map(f => f.fact_id))];
+    let alternative = !scannedId || !ids.includes(scannedId);
+    let section = "";
+    if (!alternative) {
+      try {
+        const people = await api(`/api/fact/${encodeURIComponent(scannedId)}/people`);
+        section = await factSection(scannedId, people);
+      } catch (e) {
+        if (e.status === 403) { alternative = true; ids = ids.filter(id => id !== scannedId); }
+        else section = `<p class="muted">Could not load this fact right now. Please try again.</p>`;
+      }
+    }
+    if (alternative) {
+      if (!ids.length) section = `<p class="muted">None of your facts are rare enough for the screens yet (we only show groups of 3 or more). You're counted, and you'll appear here as soon as someone shares one.</p>`;
+      else {
+        const sections = await Promise.all(ids.map(async id => {
+          try { return await factSection(id); }
+          catch (e) { return `<section class="card"><p class="muted">Could not load this fact right now. Please try again.</p></section>`; }
+        }));
+        section = (scannedId ? `<p class="lead">This one isn't yours, but here are your rare facts:</p>` : "") + sections.join("");
+      }
+    }
+    if (stage === "results") $("#matches").innerHTML = section;
+  }
+  async function start() {
+    if (scannedId) { try { fact = await api(`/api/fact/${encodeURIComponent(scannedId)}`); } catch (e) { fact = null; } }
+    try {
+      person = await api("/api/me");
+      await results();
+    } catch (e) { intro(); }
+  }
+  start();
+})();
+</script></body></html>

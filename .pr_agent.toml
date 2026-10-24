@@ -1,0 +1,28 @@
+# Qodo Code Review (github.com/apps/qodo-code-review) reads this file.
+[github_app]
+pr_commands = ["/describe", "/review", "/improve"]
+handle_push_trigger = true
+push_commands = ["/describe", "/review"]
+
+[pr_description]
+publish_labels = true
+add_original_user_description = true
+
+[pr_reviewer]
+require_security_review = true
+require_tests_review = true
+require_estimate_effort_to_review = true
+extra_instructions = """
+Room Facts shows anonymous counts of rare overlaps among event guests, from a FalkorDB graph built on scraped public profiles.
+Treat these as blocking issues:
+- Any endpoint or page that returns a guest's name, avatar or LinkedIn without the opt-in token check AND shared-fact membership (SPEC.md, privacy rules 1-4).
+- Any fact with fewer than MIN_N (3) holders reaching a public endpoint, the screen, or the event ticker.
+- Personal data committed to the repo: anything under data/, scraped JSON, guest names, emails, birth dates, pronouns.
+- Secrets in code or docs: API keys, tokens, Luma ticket keys (?tk=), the Bright Data token, .env contents.
+- Cypher built by string formatting from user input (labels/rel types must come from the code's fixed tables; values must be parameters).
+"""
+
+[pr_code_suggestions]
+extra_instructions = """
+Prefer small, local fixes. Keep the approved screen design in static/screen.html unchanged unless the PR is about it.
+"""

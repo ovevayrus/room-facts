@@ -1,0 +1,7 @@
+.env
+data/
+.python/
+.uvcache/
+__pycache__/
+.pytest_cache/
+*.log

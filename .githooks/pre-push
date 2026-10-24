@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run the test suite before anything leaves this machine.
+python -m pytest -q || { echo "pre-push: tests failed, push cancelled"; exit 1; }

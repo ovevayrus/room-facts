@@ -1,0 +1,555 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Room Facts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+/* Layout: a dark venue stage holding a cluster of portrait totems standing back to back.
+   Controls sit above the stage; the facts in rotation and the rules they follow sit below.
+   Single dark look by choice: signage reads best against a dim venue. */
+:root {
+  --venue: #0D0E11;
+  --panel: #16181D;
+  --ink: #EEF0F4;
+  --muted: #949AA6;
+  --line: #2A2D35;
+  --accent: #FFD33D;
+  --accent-ink: #1E1600;
+  --bezel: #050506;
+  --tape: #0A0A0B;
+  --f-num: "Big Shoulders Display", Impact, "Arial Narrow", sans-serif;
+  --f-text: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--venue); color: var(--ink); font-family: var(--f-text); font-size: 16px; line-height: 1.5; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 20px; }
+
+/* Header */
+.head { padding-block: 36px 20px; display: grid; gap: 12px; }
+.head h1 { margin: 0; font-family: var(--f-num); font-weight: 900; font-size: clamp(2.8rem, 7vw, 4.6rem); line-height: .9; letter-spacing: .01em; text-transform: uppercase; }
+.head p { margin: 0; color: var(--muted); font-size: 1.06rem; max-width: 70ch; }
+.chip { width: fit-content; font-family: var(--f-mono); font-size: .75rem; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* Controls */
+.controls { display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: flex-end; padding-block: 8px 18px; }
+.group { display: grid; gap: 6px; }
+.group > span { font-family: var(--f-mono); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.seg button { border: 0; background: none; padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: .92rem; white-space: nowrap; }
+.seg button:hover { background: rgba(255,255,255,.06); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--venue); }
+.play { border: 1px solid var(--line); background: var(--panel); padding: 8px 14px; border-radius: 10px; cursor: pointer; font-weight: 700; display: inline-flex; gap: 8px; align-items: center; }
+.play:hover { border-color: var(--muted); }
+.turns { display: none; gap: 6px; }
+.turns.show { display: flex; }
+
+/* Stage */
+.stage { position: relative; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 16px;
+  background:
+    radial-gradient(55% 45% at 50% 36%, rgba(255, 255, 255, .07), transparent 72%),
+    linear-gradient(180deg, #17191E 0%, #121318 70%, #0A0B0D 70.15%, #07080A 100%);
+  padding: 44px 24px 26px; }
+.scene { width: max-content; margin-inline: auto; perspective: calc(var(--w) * 7); perspective-origin: 50% 40%; }
+.cluster { --gap: calc(var(--w) * .07); display: flex; gap: var(--gap); align-items: flex-start; }
+.unit { container-type: inline-size; width: var(--w); flex: none; }
+.face { position: relative; aspect-ratio: 9 / 16; overflow: hidden; background: #000; border: 2.2cqw solid var(--bezel); border-radius: 2.4cqw; box-shadow: 0 0 0 1px #2C2F37, 0 30px 70px rgba(0, 0, 0, .55); }
+.plinth { height: 7cqw; width: 62%; margin: 0 auto; background: linear-gradient(#272930, #131418); border-radius: 0 0 1.6cqw 1.6cqw; }
+.floorshadow { height: 6cqw; width: 120%; margin: -1.5cqw -10% 0; background: radial-gradient(closest-side, rgba(0, 0, 0, .7), transparent); }
+
+.cluster.prism { display: block; position: relative; width: var(--w); height: calc(var(--w) * 16 / 9 + var(--w) * .07); transform-style: preserve-3d; transform: rotateX(-4deg) rotateY(var(--angle, 0deg)); }
+.cluster.prism .unit { position: absolute; top: 0; left: 0; transform: rotateY(calc(var(--i) * 360deg / var(--n))) translateZ(var(--tz)); backface-visibility: hidden; }
+.cluster.prism .floorshadow { display: none; }
+.prism-shadow { display: none; height: calc(var(--w) * .25); width: calc(var(--w) * 1.9); margin: calc(var(--w) * -.06) auto 0; background: radial-gradient(closest-side, rgba(0, 0, 0, .75), transparent); }
+.scene.is-prism { padding-inline: calc(var(--w) * .4); }
+.scene.is-prism .prism-shadow { display: block; }
+.caption { margin: 14px 0 0; text-align: center; font-family: var(--f-mono); font-size: .76rem; color: var(--muted); }
+
+/* One screen face: everything inside scales with the screen width (cqw). */
+.layers { position: absolute; inset: 0 0 11cqw 0; }
+.layer { position: absolute; inset: 0; background: var(--bg); color: var(--fg); display: flex; flex-direction: column; padding: 6cqw 6.5cqw 0; }
+.layer.enter { animation: wipe .8s cubic-bezier(.7, 0, .2, 1) both; }
+@keyframes wipe { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+.l-top { display: flex; justify-content: space-between; gap: 3cqw; font-family: var(--f-mono); font-weight: 700; font-size: 3.2cqw; letter-spacing: .06em; text-transform: uppercase; }
+.l-top span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.l-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 2.5cqw; }
+.kicker { font-family: var(--f-mono); font-weight: 700; font-size: 3.4cqw; letter-spacing: .08em; text-transform: uppercase; opacity: .82; }
+.num { font-family: var(--f-num); font-weight: 900; line-height: .8; font-size: 68cqw; letter-spacing: -.005em; font-variant-numeric: tabular-nums; margin-left: -1.2cqw; }
+.num.d3 { font-size: 52cqw; }
+.num.d4 { font-size: 40cqw; }
+.line { margin: 0; font-weight: 800; font-size: 8.8cqw; line-height: 1.03; letter-spacing: -.015em; text-wrap: balance; }
+.line.long { font-size: 7.6cqw; }
+.cta { display: grid; grid-template-columns: 25cqw minmax(0, 1fr); gap: 4cqw; align-items: center; padding-block: 4.5cqw; border-top: .6cqw solid currentColor; }
+.cta p { margin: 0; font-size: 4cqw; line-height: 1.2; font-weight: 600; }
+.cta b { display: block; font-size: 5.8cqw; line-height: 1.05; font-weight: 800; margin-bottom: 1cqw; }
+.qr { background: #FFFFFF; padding: 1.8cqw; border-radius: 1.4cqw; aspect-ratio: 1; }
+.qr svg { display: block; width: 100%; height: 100%; }
+.progress { height: 1.1cqw; margin-inline: -6.5cqw; background: color-mix(in srgb, currentColor 22%, transparent); }
+.progress i { display: block; height: 100%; background: currentColor; transform-origin: left; animation: prog var(--dur, 9s) linear both; }
+@keyframes prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 11cqw; background: var(--tape); color: #FFFFFF; overflow: hidden; display: flex; align-items: center; }
+.tape { display: inline-flex; flex: none; white-space: nowrap; margin-left: calc(var(--i) * -100cqw); font-family: var(--f-num); font-weight: 800; font-size: 5.8cqw; letter-spacing: .03em; text-transform: uppercase; animation: tape var(--tapedur, 120s) linear infinite; }
+.tape span { padding-inline: 3cqw; }
+.tape span::before { content: "◆"; color: var(--accent); margin-right: 3cqw; }
+@keyframes tape { from { transform: translateX(0); } to { transform: translateX(-33.3333%); } }
+.paused .progress i, .paused .tape { animation-play-state: paused; }
+
+/* Below the stage */
+.below { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 28px; padding-block: 34px 56px; }
+.below h2 { margin: 0 0 4px; font-family: var(--f-num); font-weight: 800; font-size: 1.7rem; letter-spacing: .02em; text-transform: uppercase; }
+.below .sub { margin: 0 0 14px; color: var(--muted); font-size: .92rem; }
+.queue { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.queue li { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.queue .n { font-family: var(--f-num); font-weight: 900; font-size: 1.7rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.queue .t { font-size: .95rem; line-height: 1.3; }
+.queue .s { display: block; font-family: var(--f-mono); font-size: .68rem; color: var(--muted); margin-top: 2px; }
+.queue .on { font-family: var(--f-mono); font-size: .68rem; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); white-space: nowrap; }
+.queue .on[hidden] { display: none; }
+.queue .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.rules { margin: 0 0 22px; padding: 0; list-style: none; display: grid; gap: 10px; }
+.rules li { padding-left: 22px; position: relative; font-size: .97rem; }
+.rules li::before { content: ""; position: absolute; left: 0; top: .55em; width: 10px; height: 10px; background: var(--accent); transform: rotate(45deg); }
+.rules b { font-weight: 700; }
+.src { margin: 0 0 18px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: .92rem; color: var(--muted); }
+.src b { color: var(--ink); font-weight: 600; }
+pre { margin: 0; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: var(--f-mono); font-size: .76rem; line-height: 1.6; color: var(--ink); }
+pre .c { color: var(--muted); }
+pre .k { color: var(--accent); }
+
+@media (max-width: 900px) { .below { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .wrap { padding-inline: 16px; }
+  .stage { padding: 30px 16px 20px; }
+  .controls { gap: 12px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .layer.enter { animation: none; }
+  .tape { animation: none; }
+}
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <span class="chip" id="live-chip">Sample data · 1,240 of 3,000 attendees opted in</span>
+    <h1>Room Facts</h1>
+    <p>Standing screens for a <span id="guest-count">3,000</span>-person developer conference. Each screen shows one big fact about the people nearby. A ticker of smaller facts runs along the bottom and flows from one screen into the next. Screens stand back to back in clusters of 3 or 4, so one faces you from any direction.</p>
+  </header>
+
+  <div class="controls">
+    <div class="group"><span>Location</span><div class="seg" id="c-loc"></div></div>
+    <div class="group"><span>Screens</span><div class="seg" id="c-n"><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button></div></div>
+    <div class="group"><span>View</span><div class="seg" id="c-view"><button type="button" data-v="flat">Side by side</button><button type="button" data-v="prism">Walk around</button></div></div>
+    <div class="group"><span>Viewing distance</span><div class="seg" id="c-dist"><button type="button" data-v="3">3 m</button><button type="button" data-v="6">6 m</button><button type="button" data-v="15">15 m</button></div></div>
+    <div class="group"><span>&nbsp;</span><div style="display:flex;gap:8px"><button class="play" type="button" id="c-play">❚❚ Pause</button><span class="turns" id="turns"><button class="play" type="button" id="turn-l" aria-label="Turn left">◀</button><button class="play" type="button" id="turn-r" aria-label="Turn right">▶</button></span></div></div>
+  </div>
+
+  <section class="stage" id="stage" aria-label="Preview of the screens at this location">
+    <div class="scene" id="scene">
+      <div class="cluster" id="cluster"></div>
+      <div class="prism-shadow"></div>
+    </div>
+    <p class="caption" id="caption"></p>
+  </section>
+
+  <section class="below">
+    <div>
+      <h2>In rotation here</h2>
+      <p class="sub" id="queue-sub"></p>
+      <ol class="queue" id="queue"></ol>
+    </div>
+    <div>
+      <h2>Rules every fact follows</h2>
+      <p class="sub">These keep the screens interesting without pointing at anyone.</p>
+      <ul class="rules">
+        <li><b>Only people who opted in are counted.</b> Here that's <span id="opted-count">1,240 of 3,000</span> attendees.</li>
+        <li><b>Never fewer than 3 people.</b> "1 person here is from Pune" points straight at someone, so it never appears.</li>
+        <li><b>No narrowing combinations.</b> Two details are never combined if together they shrink a group to 1 or 2 people.</li>
+        <li><b>Names stay hidden.</b> Scanning means "I'm one of them." You only see the others who also scanned and said yes.</li>
+        <li><b>Rare beats common.</b> A fact about 3 to 40 people gives someone a reason to walk over. "Most people here use Python" goes in the ticker, if anywhere.</li>
+      </ul>
+      <h2>Where facts come from</h2>
+      <ul class="src">
+        <li><b>GitHub</b>: public contributions, profile city, account age, live push activity.</li>
+        <li><b>Two questions at registration</b>: where you grew up, and what you did before tech.</li>
+        <li><b>Session check-ins</b>: which room you're in, so room screens can talk about the room.</li>
+      </ul>
+      <pre><span class="c">// Each big fact is one graph query (FalkorDB, Cypher)</span>
+<span class="k">MATCH</span> (p:Person {optedIn: true})-[:CONTRIBUTED_TO]->(r:Repo {name: 'fastapi/fastapi'})
+<span class="k">WITH</span> count(p) <span class="k">AS</span> n
+<span class="k">WHERE</span> n >= 3            <span class="c">// the minimum-group rule</span>
+<span class="k">RETURN</span> n</pre>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  // Big & bold palette: background and text colour pairs.
+  const PALETTE = [
+    { bg: "#FF5A1F", fg: "#1B0A00", name: "tangerine" },
+    { bg: "#1D4CFF", fg: "#FFFFFF", name: "blue" },
+    { bg: "#FFD33D", fg: "#1E1600", name: "sun" },
+    { bg: "#0B8F6A", fg: "#FFFFFF", name: "emerald" },
+    { bg: "#FF6FB5", fg: "#2B0019", name: "pink" },
+    { bg: "#6C3BFF", fg: "#FFFFFF", name: "violet" },
+    { bg: "#00B8CC", fg: "#001B1F", name: "cyan" },
+  ];
+
+  // Sample facts for an imagined 3,000-person developer conference (1,240 opted in).
+  const F = {
+    pune:     { n: 12, line: "people here grew up in Pune", src: "Registration answers" },
+    teachers: { n: 6, line: "people here were school teachers before they wrote code", src: "Registration answers" },
+    cobol:    { n: 4, line: "people here have committed COBOL in the past year", src: "GitHub" },
+    pairs:    { n: 3, line: "pairs here have reviewed each other's code but never met in person", src: "GitHub reviews", cta: ["Is this you?", "Scan to meet your reviewer. You both have to say yes."] },
+    early:    { n: 41, line: "people here pushed code before 7 a.m. today", src: "Live GitHub activity", cta: ["Is this you?", "Scan to meet the rest of the 7 a.m. club."] },
+    gh2008:   { n: 18, line: "people here have had a GitHub account since 2008, the year it launched", src: "GitHub" },
+    music:    { n: 5, line: "people here used to be professional musicians", src: "Registration answers" },
+    first:    { n: 212, line: "people here are at their first developer conference", src: "Registration answers", cta: ["First time too?", "Meet them at the coffee bar, 3:30 pm. Or scan to say hi first."] },
+    lagos:    { n: 14, line: "people here live in Lagos", src: "GitHub profiles" },
+    million:  { n: 7, line: "people here maintain a package with over a million weekly downloads", src: "npm and PyPI" },
+    vscode:   { n: 26, line: "people here have contributed to VS Code", src: "GitHub" },
+    nursing:  { n: 4, line: "people here switched from nursing to software", src: "Registration answers" },
+    fastapi:  { n: 9, line: "people here have contributed to FastAPI", src: "GitHub" },
+    rustc:    { n: 17, line: "people here have commits in the Rust compiler", src: "GitHub" },
+    mcp:      { n: 38, line: "people in this track have published an MCP server", src: "GitHub" },
+    langchain:{ n: 16, line: "people in this room have contributed to LangChain", src: "GitHub" },
+    llamacpp: { n: 11, line: "people in this room have contributed to llama.cpp", src: "GitHub" },
+    ling:     { n: 7, line: "people in this room studied linguistics", src: "Registration answers" },
+    gamingpc: { n: 5, line: "people in this room trained a model on a gaming PC at home", src: "Registration answers" },
+    k8s:      { n: 23, line: "people in this room have merged a pull request into Kubernetes", src: "GitHub" },
+    tf:       { n: 12, line: "people in this room have contributed to Terraform providers", src: "GitHub" },
+    oncall:   { n: 9, line: "people in this room are on call right now", src: "Registration answers", cta: ["Is this you?", "Scan to find the others. There's a quiet corner by Room 206."] },
+    linux:    { n: 6, line: "people in this room have patches in the Linux kernel", src: "GitHub" },
+    pi:       { n: 3, line: "people in this room run Kubernetes on Raspberry Pis at home", src: "Registration answers" },
+  };
+
+  const TICKER_BASE = [
+    "1,240 of 3,000 attendees joined Room Facts",
+    "People here come from 61 countries",
+    "212 first-timers",
+    "Top languages here: TypeScript, Python, Go",
+    "38 people maintain a repo older than 15 years",
+    "Busiest commit hour today: 10 a.m.",
+    "Most-used editors: VS Code, then Neovim",
+    "3 people have committed every day this year",
+  ];
+
+  const LOCATIONS = [
+    { id: "corridor", name: "Main corridor", place: "Level 1, outside the keynote hall", label: "Main corridor · L1", n: 4,
+      facts: ["pairs", "pune", "vscode", "gh2008", "teachers", "rustc", "cobol", "lagos", "million", "fastapi", "music", "nursing"],
+      ticker: TICKER_BASE },
+    { id: "hallb", name: "Hall B", place: "AI and agents track", label: "Hall B · AI & agents", n: 3,
+      facts: ["mcp", "ling", "langchain", "early", "llamacpp", "gamingpc", "pairs", "fastapi"],
+      ticker: ["412 people checked into this session", "Most-starred topic in this room: agents", ...TICKER_BASE.slice(1, 5)] },
+    { id: "r204", name: "Room 204", place: "Platform and infra track", label: "Room 204 · Platform", n: 3,
+      facts: ["k8s", "oncall", "tf", "cobol", "linux", "pi", "gh2008", "rustc"],
+      ticker: ["296 people checked into this session", "Most common cloud here: AWS, then GCP, then Azure", ...TICKER_BASE.slice(1, 5)] },
+    { id: "coffee", name: "Coffee bar", place: "Expo floor", label: "Expo · Coffee bar", n: 4,
+      facts: ["first", "lagos", "music", "early", "teachers", "million", "nursing", "pune", "vscode"],
+      ticker: TICKER_BASE },
+  ];
+
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const mock = new URLSearchParams(location.search).get("mock") === "1";
+  let publicBase = location.origin;
+  let stats = null;
+  let events = [];
+  let lastEventAt = "";
+  const EMPTY = "__join__";
+  if (!mock) {
+    Object.keys(F).forEach(key => delete F[key]);
+    LOCATIONS.forEach(loc => { loc.facts = []; loc.ticker = []; });
+    $("#live-chip").textContent = "Room Facts · Live";
+    $("#opted-count").textContent = "— of —";
+  }
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const DWELL = 9000;
+
+  const state = { loc: LOCATIONS[0], n: 4, view: "flat", dist: 6, paused: false, pausedAt: 0 };
+  let faces = [];
+  let pointer = 0;
+  let angle = 0, target = 0, lastT = performance.now();
+
+  // The mock retains the original QR; live mode encodes each fact's opt-in URL.
+  const QR_TEXT = "Room Facts prototype. In the real version this opens an opt-in page to meet the others.";
+  function qrSVG(value) {
+    let size, dark;
+    try {
+      const q = window.qrcode(0, "M"); q.addData(value); q.make();
+      size = q.getModuleCount(); dark = (r, c) => q.isDark(r, c);
+    } catch (e) {
+      size = 25; let s = 7;
+      const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+      const grid = Array.from({ length: size }, () => Array.from({ length: size }, () => rnd() > .55));
+      const finder = (r0, c0) => { for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) grid[r0 + r][c0 + c] = r === 0 || r === 6 || c === 0 || c === 6 || (r > 1 && r < 5 && c > 1 && c < 5); };
+      finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+      dark = (r, c) => grid[r][c];
+    }
+    let d = "";
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (dark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+    return `<svg viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges" aria-hidden="true"><path d="${d}" fill="#000"/></svg>`;
+  }
+  const QR = qrSVG(QR_TEXT);
+  const factQR = key => mock ? QR : qrSVG(`${publicBase.replace(/\/$/, "")}/m${key === EMPTY ? "" : `?f=${encodeURIComponent(key)}`}`);
+
+  const fmt = n => n.toLocaleString("en-US");
+  const clock = () => new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const widthFor = d => Math.round(68 * (0.6 / d) / 0.02646); // a 55-inch portrait screen (68 cm wide) seen from d metres
+
+  function layerHTML(key, color, dur) {
+    if (key === EMPTY) return `<div class="l-top"><span>${esc(state.loc.label)}</span><span>${clock()}</span></div>
+      <div class="l-main"><p class="line">Scan to join Room Facts</p></div>
+      <div class="cta"><div class="qr">${factQR(EMPTY)}</div><p><b>Is this you?</b>Scan to join Room Facts.</p></div>
+      <div class="progress"><i style="--dur:${dur}ms"></i></div>`;
+    const f = F[key];
+    const digits = fmt(f.n).length;
+    const cta = f.cta || ["Is this you?", `Scan to meet the other ${f.n - 1}. Names stay hidden until you both say yes.`];
+    return `<div class="l-top"><span>${esc(state.loc.label)}</span><span>${clock()}</span></div>
+      <div class="l-main">
+        <span class="kicker">${esc(f.src)}</span>
+        <div class="num ${digits >= 4 ? "d4" : digits === 3 ? "d3" : ""}" data-n="${f.n}">${reduced ? fmt(f.n) : "0"}</div>
+        <p class="line ${f.line.length > 52 ? "long" : ""}">${esc(f.line)}</p>
+      </div>
+      <div class="cta"><div class="qr">${factQR(key)}</div><p><b>${esc(cta[0])}</b>${esc(cta[1])}</p></div>
+      <div class="progress"><i style="--dur:${dur}ms"></i></div>`;
+  }
+
+  function countUp(el) {
+    if (reduced) return;
+    const to = +el.dataset.n, t0 = performance.now(), dur = 750;
+    const step = t => {
+      const k = Math.min(1, (t - t0) / dur);
+      el.textContent = fmt(Math.round(to * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function nextFact(exclude) {
+    const list = state.loc.facts;
+    for (let tries = 0; tries < list.length; tries++) {
+      const key = list[pointer % list.length]; pointer++;
+      if (!exclude.includes(key)) return key;
+    }
+    return list[pointer++ % list.length];
+  }
+  function nextColor(face) {
+    const used = faces.map(f => f.color);
+    for (let k = 1; k <= PALETTE.length; k++) {
+      const c = (face.color + k + PALETTE.length) % PALETTE.length;
+      if (!used.includes(c)) return c;
+    }
+    return (face.color + 1) % PALETTE.length;
+  }
+
+  function show(face, now, dur) {
+    face.key = state.loc.facts.length ? nextFact(faces.map(f => f.key)) : EMPTY;
+    face.color = nextColor(face);
+    face.until = now + dur;
+    const p = PALETTE[face.color];
+    const layer = document.createElement("div");
+    layer.className = "layer" + (reduced ? "" : " enter");
+    layer.style.setProperty("--bg", p.bg);
+    layer.style.setProperty("--fg", p.fg);
+    layer.innerHTML = layerHTML(face.key, face.color, dur);
+    face.layers.appendChild(layer);
+    const old = [...face.layers.children].slice(0, -1);
+    if (reduced) old.forEach(o => o.remove());
+    else layer.addEventListener("animationend", () => old.forEach(o => o.remove()), { once: true });
+    if (face.key !== EMPTY) countUp(layer.querySelector(".num"));
+    renderQueue();
+  }
+
+  function build() {
+    const w = widthFor(state.dist);
+    const empty = !state.loc.facts.length;
+    const n = empty ? 1 : state.n;
+    const cluster = $("#cluster");
+    const scene = $("#scene");
+    cluster.className = "cluster" + (state.view === "prism" && !empty ? " prism" : "") + (state.paused ? " paused" : "");
+    scene.classList.toggle("is-prism", state.view === "prism" && !empty);
+    scene.style.setProperty("--w", w + "px");
+    cluster.style.setProperty("--n", n);
+    cluster.style.setProperty("--tz", (w / (2 * Math.tan(Math.PI / Math.max(3, n))) + w * .015) + "px");
+    const tape = state.loc.ticker.map(t => `<span>${esc(t)}</span>`).join("");
+    cluster.innerHTML = Array.from({ length: n }, (_, i) => `
+      <div class="unit" style="--i:${i}">
+        <div class="face"><div class="layers"></div><div class="ticker"><div class="tape">${tape}${tape}${tape}</div></div></div>
+        <div class="plinth"></div><div class="floorshadow"></div>
+      </div>`).join("");
+    // Constant ticker speed: about a fifth of a screen width per second.
+    const tapeEl = cluster.querySelector(".tape");
+    const secs = Math.max(1, (tapeEl.scrollWidth / 3) / (w * 0.2));
+    cluster.querySelectorAll(".tape").forEach(t => t.style.setProperty("--tapedur", secs + "s"));
+
+    pointer = 0;
+    faces = [...cluster.querySelectorAll(".unit")].map((u, i) => ({ layers: u.querySelector(".layers"), key: null, color: (i * 2) % PALETTE.length - 1, until: 0 }));
+    const now = performance.now();
+    faces.forEach((f, i) => show(f, now, DWELL + i * Math.round(DWELL / n)));
+    if (state.paused) state.pausedAt = now;
+
+    $("#caption").textContent = `${state.loc.name} · ${state.loc.place} · ${n} screens back to back. Each is sized like a 55-inch portrait screen seen from ${state.dist} m, if you sit about 60 cm from your own screen.`;
+    $("#turns").classList.toggle("show", state.view === "prism" && !empty);
+    syncButtons();
+  }
+
+  function renderQueue() {
+    const on = faces.map(f => f.key);
+    $("#queue-sub").textContent = `${state.loc.facts.length} big facts for ${state.loc.name.toLowerCase()} screens. Each one stays up for ${DWELL / 1000} seconds, and neighbouring screens change at different times.`;
+    $("#queue").innerHTML = state.loc.facts.map(key => {
+      const f = F[key];
+      const fi = faces.findIndex(x => x.key === key);
+      const sw = fi >= 0 ? `<span class="swatch" style="background:${PALETTE[faces[fi].color].bg}"></span>` : "";
+      return `<li><span class="n">${fmt(f.n)}</span><span class="t">${esc(f.line)}<span class="s">${esc(f.src)}</span></span><span class="on" ${fi >= 0 ? "" : "hidden"}>${sw}Screen ${fi + 1}</span></li>`;
+    }).join("");
+  }
+
+  function tickerFromStats(s) {
+    const lines = [];
+    if (Number.isFinite(+s.opted_in) && Number.isFinite(+s.guests)) lines.push(`${fmt(+s.opted_in)} of ${fmt(+s.guests)} guests joined Room Facts`);
+    if (Number.isFinite(+s.schools)) lines.push(`${fmt(+s.schools)} schools represented`);
+    if (Number.isFinite(+s.countries)) lines.push(`People here are based in ${fmt(+s.countries)} countries`);
+    const top = (s.top_schools || s.schools_top || []).slice(0, 3);
+    const companies = (s.top_companies || s.companies_top || []).slice(0, 3);
+    if (top.length) lines.push(`Top schools: ${top.map(x => typeof x === "string" ? x : x.name).filter(Boolean).join(", ")}`);
+    if (companies.length) lines.push(`Top companies: ${companies.map(x => typeof x === "string" ? x : x.name).filter(Boolean).join(", ")}`);
+    return lines;
+  }
+
+  function updateTicker() {
+    if (mock) return;
+    const lines = [...(stats ? tickerFromStats(stats) : []), ...events.map(e => e.text).filter(Boolean)];
+    LOCATIONS.forEach(loc => { loc.ticker = lines; });
+    const tape = lines.map(t => `<span>${esc(t)}</span>`).join("");
+    $("#cluster").querySelectorAll(".tape").forEach(el => {
+      el.innerHTML = tape + tape + tape;
+      const w = widthFor(state.dist);
+      el.style.setProperty("--tapedur", Math.max(1, (el.scrollWidth / 3) / (w * .2)) + "s");
+    });
+  }
+
+  async function getJSON(path) {
+    const response = await fetch(path, { credentials: "same-origin" });
+    if (!response.ok) throw new Error(`${path}: ${response.status}`);
+    return response.json();
+  }
+
+  async function pollFacts() {
+    try {
+      const data = await getJSON("/api/facts");
+      if (!Array.isArray(data.facts)) throw new Error("Invalid facts response");
+      const next = Object.create(null);
+      const ids = [];
+      data.facts.forEach(f => {
+        if (typeof f.id !== "string" || !Number.isFinite(+f.n) || +f.n < 3 || typeof f.line !== "string") return;
+        next[f.id] = f; ids.push(f.id);
+      });
+      const before = state.loc.facts.join("\u0000");
+      Object.keys(F).forEach(key => delete F[key]);
+      Object.assign(F, next);
+      LOCATIONS.forEach((loc, index) => { loc.facts = ids.slice(index % (ids.length || 1)).concat(ids.slice(0, index % (ids.length || 1))); });
+      if (before !== state.loc.facts.join("\u0000")) build();
+      else renderQueue();
+    } catch (error) { console.warn("Room Facts: keeping last good facts", error); }
+  }
+
+  async function pollStats() {
+    try {
+      stats = await getJSON("/api/stats");
+      if (Number.isFinite(+stats.guests)) {
+        const guest = $("#guest-count");
+        guest.textContent = fmt(+stats.guests);
+        guest.hidden = false;
+        guest.parentElement.childNodes[0].textContent = "Standing screens for a ";
+        guest.parentElement.childNodes[2].textContent = "-person developer conference. Each screen shows one big fact about the people nearby. A ticker of smaller facts runs along the bottom and flows from one screen into the next. Screens stand back to back in clusters of 3 or 4, so one faces you from any direction.";
+      }
+      if (Number.isFinite(+stats.opted_in) && Number.isFinite(+stats.guests)) {
+        $("#live-chip").textContent = `Live · ${fmt(+stats.opted_in)} of ${fmt(+stats.guests)} attendees opted in`;
+        $("#opted-count").textContent = `${fmt(+stats.opted_in)} of ${fmt(+stats.guests)}`;
+      }
+      updateTicker();
+    } catch (error) { console.warn("Room Facts: keeping last good stats", error); }
+  }
+
+  async function pollEvents() {
+    try {
+      const data = await getJSON(`/api/events${lastEventAt ? `?since=${encodeURIComponent(lastEventAt)}` : ""}`);
+      const incoming = Array.isArray(data) ? data : data.events;
+      if (!Array.isArray(incoming)) throw new Error("Invalid events response");
+      const seen = new Set(events.map(e => `${e.at}|${e.text}`));
+      incoming.forEach(e => { if (typeof e.text === "string" && !seen.has(`${e.at}|${e.text}`)) { events.push(e); seen.add(`${e.at}|${e.text}`); } });
+      events = events.slice(-10);
+      if (incoming.length && incoming[incoming.length - 1].at) lastEventAt = incoming[incoming.length - 1].at;
+      updateTicker();
+    } catch (error) { console.warn("Room Facts: keeping last good events", error); }
+  }
+
+  function loop(t) {
+    const dt = t - lastT; lastT = t;
+    if (!state.paused) {
+      faces.forEach(f => { if (t >= f.until) show(f, t, DWELL); });
+      if (state.view === "prism" && !reduced) target -= dt * 0.0055;
+    }
+    angle += (target - angle) * Math.min(1, dt / 160);
+    if (state.view === "prism") $("#cluster").style.setProperty("--angle", angle + "deg");
+    requestAnimationFrame(loop);
+  }
+
+  // Controls
+  $("#c-loc").innerHTML = LOCATIONS.map(l => `<button type="button" data-v="${l.id}">${esc(l.name)}</button>`).join("");
+  function syncButtons() {
+    const set = (sel, v) => document.querySelectorAll(`${sel} button`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
+    set("#c-loc", state.loc.id); set("#c-n", state.n); set("#c-view", state.view); set("#c-dist", state.dist);
+    $("#c-play").textContent = state.paused ? "▶ Play" : "❚❚ Pause";
+  }
+  $("#c-loc").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.loc = LOCATIONS.find(l => l.id === b.dataset.v); state.n = state.loc.n; build(); });
+  $("#c-n").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.n = +b.dataset.v; build(); });
+  $("#c-view").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.view = b.dataset.v; angle = target = state.view === "prism" ? -18 : 0; build(); });
+  $("#c-dist").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; state.dist = +b.dataset.v; build(); });
+  $("#c-play").addEventListener("click", () => {
+    const now = performance.now();
+    if (state.paused) { const gap = now - state.pausedAt; faces.forEach(f => f.until += gap); }
+    else state.pausedAt = now;
+    state.paused = !state.paused;
+    $("#cluster").classList.toggle("paused", state.paused);
+    syncButtons();
+  });
+  $("#turn-l").addEventListener("click", () => { target += 360 / state.n; });
+  $("#turn-r").addEventListener("click", () => { target -= 360 / state.n; });
+
+  if (mock) build();
+  requestAnimationFrame(loop);
+  if (!mock) {
+    const intro = $("#guest-count").parentElement;
+    intro.childNodes[0].textContent = "Standing screens for a developer conference. ";
+    $("#guest-count").hidden = true;
+    intro.childNodes[2].textContent = intro.childNodes[2].textContent.replace("-person developer conference. ", "");
+    async function pollConfig() {
+      try {
+        const data = await getJSON("/api/config");
+        if (typeof data.public_base_url === "string" && data.public_base_url) {
+          publicBase = data.public_base_url;
+          build();
+          return true;
+        }
+      } catch (error) { console.warn("Room Facts: using current origin for QR", error); }
+      return false;
+    }
+    (async () => {
+      if (!await pollConfig()) build();
+      pollFacts(); pollStats(); pollEvents();
+      setInterval(pollFacts, 15000);
+      setInterval(pollStats, 15000);
+      setInterval(pollEvents, 5000);
+    })();
+  }
+})();
+</script>
+
+</body></html>

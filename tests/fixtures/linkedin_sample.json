@@ -1,0 +1,15 @@
+[
+  {"linkedin_id":"ada-one","city":"San Francisco Bay Area","country_code":"US","education":[{"title":"UC Berkeley","url":"https://www.linkedin.com/school/uc-berkeley/"}],"experience":[{"company":"Stripe, Inc.","url":"https://www.linkedin.com/company/stripe/","title":"Engineer"}],"languages":[{"title":"Hindi"},{"title":"English"}]},
+  {"input":{"url":"https://www.linkedin.com/in/bela-two/"},"city":"San Francisco, California","country_code":"US","education":[{"title":"University of California, Berkeley"}],"experience":[{"company":"Stripe"}],"languages":[{"title":"Hindi"}]},
+  {"linkedin_id":"ciro-three","city":"Oakland, California","country_code":"US","education":[{"title":"UC Berkeley"}],"experience":[{"company":"Stripe"}],"languages":[{"title":"Hindi"}]},
+  {"linkedin_id":"dina-four","city":"Greater Seattle Area","country_code":"US","education":[{"title":"UC Berkeley"}],"experience":[{"company":"Acme LLC"}]},
+  {"linkedin_id":"emi-five","city":"Seattle, Washington","country_code":"US","education":[{"title":"IIT Bombay"}],"experience":[{"company":"Acme Inc."}]},
+  {"linkedin_id":"faris-six","city":"Seattle, Washington","country_code":"US","education":[{"title":"Indian Institute of Technology, Bombay"}],"experience":[{"company":"Acme"}]},
+  {"linkedin_id":"gita-seven","city":"Pune, Maharashtra, India","country_code":"IN","education":[{"title":"CMU"}],"experience":[{"company":"Stealth Startup"}]},
+  {"linkedin_id":"hugo-eight","city":"Pune, Maharashtra, India","country_code":"IN","education":[{"title":"Carnegie Mellon University"}],"experience":[{"company":"Stealth"}]},
+  {"linkedin_id":"inez-nine","city":"Pune, Maharashtra, India","country_code":"IN","education":[{"title":"Georgia Tech"}],"experience":[{"company":"Freelance"}]},
+  {"linkedin_id":"joon-ten","city":"Singapore, Singapore","country_code":"SG","education":[{"title":"Georgia Institute of Technology"}],"experience":[{"company":"Orbit GmbH"}]},
+  {"linkedin_id":"kira-eleven","city":"Singapore, Singapore","country_code":"SG","education":[{"title":"NYU"}],"experience":[{"company":"Orbit"}]},
+  {"linkedin_id":"luca-twelve","city":"Singapore, Singapore","country_code":"SG","education":[{"title":"New York University"}],"experience":[{"company":"Orbit"}]},
+  {"error":"synthetic lookup error","input":{"url":"https://www.linkedin.com/in/no-match/"}}
+]
