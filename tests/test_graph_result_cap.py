@@ -1,4 +1,4 @@
-"""Relationship reads must survive the database's per-query result cap."""
+"""Holder reads must survive the database's outer result-row cap."""
 from types import SimpleNamespace
 
 import pytest
@@ -8,33 +8,29 @@ import facts
 
 class CappedGraph:
     def __init__(self, family, rows, cap=10000):
-        self.family = family
-        self.rows = rows
-        self.cap = cap
+        self.family, self.rows, self.cap = family, rows, cap
+        self.calls = []
 
-    def ro_query(self, query, params=None):
+    def ro_query(self, query):
+        self.calls.append(query)
         if "MATCH (s:School)<-[a:STUDIED_AT]" in query:
             family = "combo" if "[:IN_INDUSTRY]" in query else None
-        elif "RETURN i.id, c.id" in query:
+        elif "i.id, c.id" in query:
             family = "backing"
         elif "'ISSUED_BY'" in query:
             family = "issuer"
-        elif "RETURN p.id, 'IN_INDUSTRY'" in query:
+        elif "'IN_INDUSTRY'" in query:
             family = "path"
-        elif "RETURN p.id, type(r)" in query:
+        elif "type(r), labels(x)[0]" in query:
             family = "direct"
         else:
             family = None
         rows = self.rows if family == self.family else []
-        params = params or {}
-        start = params.get("page_offset", 0)
-        size = min(params.get("page_size", self.cap), self.cap)
-        if params:
-            assert "ORDER BY" in query
-        return SimpleNamespace(result_set=rows[start:start + size])
+        result = [[rows]] if "RETURN collect([" in query else rows
+        return SimpleNamespace(result_set=result[:self.cap])
 
 
-def test_late_holders_and_hidden_edges_survive_ten_thousand_row_cap():
+def test_late_holders_hidden_edges_and_over_cap_counts_are_complete():
     rows = [(f"cap-{i}", "SPEAKS", "Language", "at-cap", "At Cap", False, False, False, None)
             for i in range(25)]
     rows += [(f"early-{i}", "SPEAKS", "Language", "common", "Common", False, False, False, None)
@@ -42,21 +38,21 @@ def test_late_holders_and_hidden_edges_survive_ten_thousand_row_cap():
     rows += [(f"late-{i}", "STUDIED_AT", "School", "rare-school", "Rare School", i == 3, False, False, None)
              for i in range(4)]
     rows.append(("late-cap", "SPEAKS", "Language", "at-cap", "At Cap", False, False, False, None))
-    catalog = facts.fact_catalog(facts.graph_rows(CappedGraph("direct", rows)))
+    graph = CappedGraph("direct", rows)
+    catalog = facts.fact_catalog(facts.graph_rows(graph))
     rare = catalog["school:rare-school"]
     assert rare["n"] == 3 and rare["eligible"]
     assert rare["holders"] == {"late-0", "late-1", "late-2"}
     assert rare["hidden_holders"] == {"late-3"}
-    assert not catalog["language:common"]["eligible"]
     assert catalog["language:at-cap"]["n"] == 26
     assert not catalog["language:at-cap"]["eligible"]
     assert "holders" not in facts.public_fact(rare)
+    assert sum("type(r), labels(x)[0]" in q for q in graph.calls) == 1
 
 
 @pytest.mark.parametrize("family", ["issuer", "path", "backing", "combo"])
-@pytest.mark.parametrize("count", [4, 5])
-def test_every_path_query_reads_all_pages(monkeypatch, family, count):
-    monkeypatch.setattr(facts, "GRAPH_PAGE_SIZE", 2)
+@pytest.mark.parametrize("count", [0, 5])
+def test_every_path_query_unpacks_its_atomic_collection(family, count):
     if family == "combo":
         source = [(f"p{i}", "school", "School", "industry", "Industry", False, i == 4, False) for i in range(count)]
         expected = [(f"p{i}", "COMBO_school_industry", "Industry", ("school", "industry"), ("School", "Industry"), i == 4, False) for i in range(count)]
@@ -67,4 +63,6 @@ def test_every_path_query_reads_all_pages(monkeypatch, family, count):
         relation, label = ("ISSUED_BY", "Issuer") if family == "issuer" else ("IN_INDUSTRY", "Industry")
         source = [(f"p{i}", relation, label, "entity", "Entity", i == 4, False, False) for i in range(count)]
         expected = source
-    assert facts.graph_rows(CappedGraph(family, source)) == expected
+    graph = CappedGraph(family, source, cap=1)
+    assert facts.graph_rows(graph) == expected
+    assert all("RETURN collect([" in q for q in graph.calls)

@@ -94,11 +94,11 @@ def test_interest_score_uses_metadata_and_stable_tiebreak():
 
     class Graph:
         def ro_query(self, query, params=None):
-            if "RETURN i.id, c.id" in query:
-                return Result([("fund", "co-0"), ("fund", "co-1"), ("fund", "co-2")])
-            if "RETURN p.id, 'BACKED_BY'" in query:
-                return Result(investor_rows)
-            return Result([])
+            if "i.id, c.id" in query:
+                return Result([[[("fund", "co-0"), ("fund", "co-1"), ("fund", "co-2")]]])
+            if "p.id, 'BACKED_BY'" in query:
+                return Result([[investor_rows]])
+            return Result([[[]]])
 
     assert fact_catalog(graph_rows(Graph()))["investor:fund"]["score"] == 6
 
@@ -169,8 +169,8 @@ def test_graph_reads_current_combo_paths_without_hiding_constituent_edges():
         def ro_query(self, query, params=None):
             self.reads.append(query)
             if "<-[a:STUDIED_AT]" in query and "IN_INDUSTRY" in query:
-                return Result([("p", "example-u", "Example U", "robotics", "Robotics", False, False, False)])
-            return Result([])
+                return Result([[[('p', 'example-u', 'Example U', 'robotics', 'Robotics', False, False, False)]]])
+            return Result([[[]]])
 
         def query(self, query, params):
             self.writes.append((query, params))

@@ -130,7 +130,7 @@ def test_rebuild_creates_issuer_relationship_and_graph_rows_reads_it(tmp_path, m
 
     class Result:
         def __init__(self, rows):
-            self.result_set = rows
+            self.result_set = [[rows]]
 
     class Graph:
         def __init__(self):
