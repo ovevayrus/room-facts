@@ -44,6 +44,7 @@ def review_app(monkeypatch):
     monkeypatch.setattr(server, "apply_hidden", apply_hidden)
     monkeypatch.setattr(server, "_cache", {"at": 0.0, "catalog": {}, "facts": [], "generated_at": ""})
     monkeypatch.setattr(server, "_reviews", {})
+    monkeypatch.setattr(server, "_review_hits", {})
     monkeypatch.setattr(server, "_events", [])
     return TestClient(server.app), rows, saved, mutations
 
@@ -81,7 +82,7 @@ def test_final_selection_accepts_rare_facts_and_leaves_unseen_facts_pending(revi
     response = client.post("/api/optin", json={"person_id": "p0", "show": ["language:rare"], "hide": ["school:uni"]})
     assert response.status_code == 200
     assert saved["p0"]["approved"] == ["language:rare"]
-    assert saved["p0"]["hidden"] == ["school:uni"]
+    assert saved["p0"]["hidden"] == [] and saved["p0"]["fact_hidden"] == ["school:uni"]
     assert saved["p0"]["pending"] == ["cause:new"]
     assert "rf_review" not in client.cookies and server._reviews == {}
     assert client.get("/api/me").status_code == 200
@@ -96,7 +97,7 @@ def test_unchecked_reviewed_facts_are_hidden_even_when_hide_is_omitted(review_ap
     client.post("/api/review-session", json={"person_id": "p0"}).raise_for_status()
     assert client.post("/api/optin", json={"person_id": "p0", "show": []}).status_code == 200
     assert saved["p0"]["approved"] == []
-    assert saved["p0"]["hidden"] == ["language:rare", "school:uni"]
+    assert saved["p0"]["hidden"] == [] and saved["p0"]["fact_hidden"] == ["language:rare", "school:uni"]
 
 
 def test_invalid_or_changed_selection_does_not_consume_review(review_app):
@@ -145,9 +146,36 @@ def test_review_sessions_are_bounded_and_https_cookie_is_secure(review_app, monk
     monkeypatch.setattr(server, "REVIEW_LIMIT", 2)
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
     clients = [TestClient(server.app, base_url="https://example.test") for _ in range(3)]
-    for client in clients:
+    for client in clients[:2]:
         response = client.post("/api/review-session", json={"person_id": "p0"})
+        assert response.status_code == 200
         assert "Secure" in response.headers["set-cookie"]
+    assert clients[2].post("/api/review-session", json={"person_id": "p0"}).status_code == 429
     assert len(server._reviews) == 2
-    assert clients[0].post("/api/optin", json={"person_id": "p0", "show": []}).status_code == 401
     assert saved == {} and mutations == []
+    assert clients[0].post("/api/optin", json={"person_id": "p0", "show": []}).status_code == 200
+
+
+def test_repeated_reviews_use_cache_and_rate_limit_before_graph_reads(review_app, monkeypatch):
+    client, _, saved, mutations = review_app
+    calls = []
+    original = server.graph_rows
+    monkeypatch.setattr(server, "graph_rows", lambda graph: (calls.append(1), original(graph))[1])
+    for _ in range(60):
+        assert client.post("/api/review-session", json={"person_id": "p0"}).status_code == 200
+    assert len(calls) == 1
+    assert client.post("/api/review-session", json={"person_id": "p0"}).status_code == 429
+    assert len(calls) == 1 and saved == {} and mutations == []
+
+
+def test_device_limit_preserves_existing_sessions_and_owner_reuses_cookie(review_app, monkeypatch):
+    client, _, saved, mutations = review_app
+    monkeypatch.setattr(server, "MAX_DEVICE_TOKENS", 1)
+    assert client.post("/api/optin", json={"person_id": "p0"}).status_code == 200
+    original_tokens = list(saved["p0"]["tokens"])
+    assert client.post("/api/optin", json={"person_id": "p0"}).status_code == 200
+    assert saved["p0"]["tokens"] == original_tokens
+    before = len(mutations)
+    client.cookies.clear()
+    assert client.post("/api/optin", json={"person_id": "p0"}).status_code == 429
+    assert saved["p0"]["tokens"] == original_tokens and len(mutations) == before

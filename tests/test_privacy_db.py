@@ -189,3 +189,31 @@ def test_connections_reread_when_a_hide_lands_mid_request(db_app, monkeypatch):
     monkeypatch.setattr(assist, "connections", racing)
     assert "Stripe" not in json.dumps(client.get("/api/connections").json())
     assert len(calls) == 2 and "Stripe" in json.dumps(calls[0])
+
+
+def test_choosing_industry_without_company_keeps_the_selected_overlap(db_app):
+    client = db_app
+    g = build_graph.graph_client()
+    g.query("MATCH (c:Company {id:'stripe'}) MERGE (i:Industry {id:'synthetic-software', name:'Synthetic Software'}) MERGE (c)-[:IN_INDUSTRY]->(i)")
+    industry = 'industry:synthetic-software'
+    for pid in ('u2', 'u1'):
+        client.cookies.clear()
+        response = client.post('/api/review-session', json={'person_id': pid})
+        response.raise_for_status()
+        assert industry in {f['fact_id'] for f in response.json()['facts']}
+        client.post('/api/optin', json={'person_id': pid, 'show': [industry]}).raise_for_status()
+    catalog = server.snapshot(force=True)['catalog']
+    assert 'u1' in catalog[industry]['holders'] and 'u1' not in catalog['company:stripe']['holders']
+    people = client.get('/api/connections').json()['people']
+    assert [p['name'] for p in people] == ['Bela Two']
+    assert 'Synthetic Software' in json.dumps(people) and 'Stripe' not in json.dumps(people)
+    # Later edits are independent too: hiding the industry can restore the company.
+    client.post('/api/me/facts', json={'hide': [industry], 'show': ['company:stripe']}).raise_for_status()
+    catalog = server.snapshot(force=True)['catalog']
+    assert 'u1' not in catalog[industry]['holders'] and 'u1' in catalog['company:stripe']['holders']
+    saved = server.load_optins()
+    assert saved['u1']['hidden'] == [] and industry in saved['u1']['fact_hidden']
+    # The graph retains the underlying edge, so choices survive a normal rebuild.
+    build_graph.rebuild(FIXTURES / 'luma_sample.json', FIXTURES / 'linkedin_sample.json', 'roomfacts_test')
+    catalog = server.snapshot(force=True)['catalog']
+    assert 'u1' in catalog['company:stripe']['holders'] and 'u2' not in catalog['company:stripe']['holders']

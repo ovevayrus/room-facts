@@ -13,6 +13,9 @@ Project folder: `C:\Users\oveva\01winningiphones\roomfacts` (Windows, Python 3.1
 3. People can hide any of their facts (wrong data). Hidden edges don't count anywhere.
 4. Opt-in state survives a graph rebuild: persist it to `data/optins.json` (`{person_id: {"opted_in_at": iso, "hidden": [fact_id, ...], "pending": [fact_id, ...], "approved": [fact_id, ...], "tokens": [sha256, ...]}}`) and re-apply it after loading. `pending` facts were never shown to the person, so they don't count anywhere (screens, `/api/stats`, people lists) until the owner approves them. `approved` holds facts the person accepted in the checklist or approved later, so a re-opt-in without the cookie doesn't make them pending again.
 5. Confirming one's profile can create a ten-minute, person-bound review session. It permits only reviewing that person's facts and submitting the initial selection. It never authorizes connections, other people's names, changing facts, or opting out. It does not change graph visibility or saved opt-ins. A restart expires unfinished reviews; completed opt-in sessions persist.
+6. New checkbox exclusions are stored as `fact_hidden` and suppress only that fact in the catalog, so unchecking an employer does not suppress a checked industry overlap. Historical `hidden` entries retain their relationship-level behavior until the authenticated owner changes them. Both kinds of exclusion survive rebuilds. Review creation is rate-limited, uses the catalog cache, and rejects excess capacity without evicting active reviews. Existing devices reuse their token; a profile can add up to sixteen device tokens without discarding previous ones.
+
+The demo retains its existing self-identification model: confirming a name is a claim, not proof of profile ownership. The restricted review cookie does not add identity verification. Ticket or verified-account authentication remains a separate hardening task.
 
 ## Inputs
 
