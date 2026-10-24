@@ -52,6 +52,7 @@
     if (raw.startsWith("/api/person/") && raw.endsWith("/facts")) return Promise.resolve((raw.slice(12, -6) === "p3" ? samplePersonFacts.slice(2) : samplePersonFacts).map(f => ({...f,hidden:mockHidden.includes(f.fact_id)})));
     if (raw.startsWith("/api/person/")) return Promise.resolve(samplePeople.find(p => p.id === raw.slice(12)) || samplePeople[0]);
     if (raw === "/api/optin") { mockOpted = true; mockHidden = JSON.parse(options.body).hide; return Promise.resolve({ok:true,person}); }
+    if (raw === "/api/me/overlaps") return Promise.resolve({people: mockOpted ? [{name:"Jordan Kim",avatar:"",linkedin_url:"https://www.linkedin.com/in/jordan-kim",shared:[{fact_id:"company:acme",line:"You both have worked at Acme",n:3},{fact_id:"field:data-science",line:"You both studied Data Science",n:31}]}] : []});
     if (raw === "/api/me/facts") { const b = JSON.parse(options.body); mockHidden = [...new Set([...mockHidden, ...b.hide])].filter(id => !b.show.includes(id)); return Promise.resolve([]); }
     if (raw === "/api/optout") { mockOpted = false; mockHidden = []; return Promise.resolve({ok:true}); }
     return Promise.reject(new Error("Unknown mock endpoint"));
@@ -110,7 +111,7 @@
   function yourFacts() {
     stage = "facts";
     app.innerHTML = heading("04 / Your facts", "Choose what counts", "Uncheck anything that's wrong. It won't count.") +
-      `<div class="card">${personFacts.length ? personFacts.map((f,i) => `<label class="check"><input type="checkbox" data-index="${i}"${f.hidden || f.pending ? "" : " checked"}><span>${esc(f.line_you)}${f.n_if_eligible != null ? `<small>${esc(f.n_if_eligible)} people share this fact</small>` : ""}</span></label>`).join("") : `<p class="muted">No facts found yet. You can still join.</p>`}</div>` +
+      `<div class="card">${personFacts.length ? personFacts.map((f,i) => `<label class="check"><input type="checkbox" data-index="${i}"${f.hidden || f.pending ? "" : " checked"}><span>${esc(f.line_you)}${(f.n ?? f.n_if_eligible) != null ? `<small>${esc(f.n ?? f.n_if_eligible)} people share this fact</small>` : ""}</span></label>`).join("") : `<p class="muted">No facts found yet. You can still join.</p>`}</div>` +
       `<button class="button" id="optin">Opt in and see who else</button><button class="button secondary" id="back">Back</button><p class="error" id="error" role="alert"></p>`;
     $("#back").onclick = confirmPerson;
     $("#optin").onclick = optIn;
@@ -131,10 +132,11 @@
   }
   async function results() {
     stage = "results";
-    app.innerHTML = heading("05 / People in this room", "You're in", "Names appear only for people who also opted in.") + `<div id="matches"><p class="muted">Loading people…</p></div><div id="review"></div><button class="button secondary" id="leave">Leave Room Facts</button><p class="error" id="error" role="alert"></p>`;
+    app.innerHTML = heading("05 / People in this room", "You're in", "Names appear only for people who also opted in.") + `<div id="matches"><p class="muted">Loading people…</p></div><div id="common"></div><div id="review"></div><button class="button secondary" id="leave">Leave Room Facts</button><p class="error" id="error" role="alert"></p>`;
     $("#leave").onclick = async () => { try { await api("/api/optout", {method:"POST"}); person = null; personFacts = []; intro(); } catch (e) { error("Could not leave Room Facts. Please try again."); } };
     personFacts = await api(`/api/person/${encodeURIComponent(person.id)}/facts`);
     reviewFacts();
+    inCommon();
     let ids = [...new Set(personFacts.filter(f => f.fact_id && f.n_if_eligible != null && !f.hidden && !f.pending).map(f => f.fact_id))];
     let alternative = !scannedId || !ids.includes(scannedId);
     let section = "";
@@ -159,11 +161,18 @@
     }
     if (stage === "results") $("#matches").innerHTML = section;
   }
+  async function inCommon() {
+    let people = [];
+    try { people = (await api("/api/me/overlaps")).people || []; } catch (e) { return; }
+    if (stage !== "results" || !people.length) return;
+    $("#common").innerHTML = `<section class="card"><h2>More in common</h2><p class="muted">Everyone who opted in and shares something with you, including broader facts.</p>` +
+      people.map(p => { const link = linkedinURL(p); const shared = p.shared || []; return `<div class="row">${avatar(p)}<span><strong>${esc(p.name)}</strong>${link ? `<small><a class="person-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">LinkedIn profile</a></small>` : ""}${shared.slice(0,4).map(f => `<small>${esc(f.line)} · ${esc(f.n)} people</small>`).join("")}${shared.length > 4 ? `<small>+${esc(shared.length - 4)} more</small>` : ""}</span></div>`; }).join("") + `</section>`;
+  }
   function reviewFacts() {
     const rows = personFacts.filter(f => f.fact_id);
     const pending = rows.filter(f => f.pending).length;
     $("#review").innerHTML = rows.length ? `<section class="card"><h2>Review your facts</h2><p class="muted">${pending ? `${esc(pending)} fact${pending === 1 ? "" : "s"} won't count until you approve ${pending === 1 ? "it" : "them"}.` : "Checked facts count. Uncheck anything you'd rather hide."}</p>` +
-      rows.map((f,i) => `<label class="check"><input type="checkbox" data-review="${i}"${f.hidden || f.pending ? "" : " checked"}><span>${esc(f.line_you)}<small>${f.pending ? "Not reviewed yet" : f.hidden ? "Hidden" : "Counts"}${f.n_if_eligible != null ? ` · ${esc(f.n_if_eligible)} people` : ""}</small></span></label>`).join("") +
+      rows.map((f,i) => `<label class="check"><input type="checkbox" data-review="${i}"${f.hidden || f.pending ? "" : " checked"}><span>${esc(f.line_you)}<small>${f.pending ? "Not reviewed yet" : f.hidden ? "Hidden" : "Counts"}${(f.n ?? f.n_if_eligible) != null ? ` · ${esc(f.n ?? f.n_if_eligible)} people` : ""}</small></span></label>`).join("") +
       `<button class="button" id="save-facts">Save my facts</button></section>` : "";
     if (!rows.length) return;
     $("#save-facts").onclick = async () => {

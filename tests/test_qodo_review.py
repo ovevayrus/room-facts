@@ -254,3 +254,13 @@ def test_certifications_cannot_be_approved_or_kept_approved(monkeypatch):
     client.cookies.clear()
     assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
     assert saved["p0"]["approved"] == ["school:uni"]
+
+
+def test_broad_checklist_facts_are_approved_at_optin(monkeypatch):
+    rows = [row(f"x{i}", "LIVES_IN", "City", "sf", "San Francisco") for i in range(30)] + [row("p0", "LIVES_IN", "City", "sf", "San Francisco")]
+    saved = {}
+    client = optin_app(monkeypatch, rows, saved)
+    assert [f["fact_id"] for f in client.get("/api/person/p0/facts").json()] == ["city:sf"]
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["approved"] == ["city:sf"] and saved["p0"]["pending"] == []
+    assert "p0" in server.snapshot(force=True)["catalog"]["city:sf"]["holders"]

@@ -14,14 +14,14 @@ COMBO_PATHS = {
 }
 COMBO_KINDS = {*COMBO_PATHS, "repo_lang"}
 SEPARATE_HIDDEN_COMBOS = {*COMBO_KINDS, "school_company", "company_company"}
-ORDER = ["school_industry", "school_stage", "school_investor", "repo_lang", "repo", "investor", "school", "language", "industry", "city", "gh_org", "hashtag", "ig_hashtag", "company", "tagged_company", "prog_lang", "school_company", "company_company", "volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year", "cert", "cert_issuer", "cause", "company_country", "x_verified", "study_country", "country"]
+ORDER = ["school_industry", "school_stage", "school_investor", "repo_lang", "repo", "investor", "school", "field", "language", "industry", "city", "gh_org", "hashtag", "ig_hashtag", "company", "tagged_company", "prog_lang", "school_company", "company_company", "volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year", "cert", "cert_issuer", "cause", "company_country", "x_verified", "study_country", "country"]
 PATH_KINDS = {"cert_issuer", *ORG_PATHS, "school_company", "company_company", *COMBO_KINDS}
 COUNTRY_KINDS = {"country", "company_country", "study_country"}
 # Too generic for a person's own fact list. Never shown there, so they stay pending (uncounted) once someone opts in.
 UNLISTED_KINDS = {"cert", "cert_issuer"}
 WIDE_KINDS = {"school", "company", "repo", "investor", "tagged_company", "hashtag", "prog_lang", "industry", "city", "language", *COMBO_KINDS}
 TIER_1 = {"school", "repo", "investor", "company", "tagged_company", "hashtag", "prog_lang", "industry", "city", "language", "ig_hashtag", "gh_org", "school_company", "company_company", *COMBO_KINDS}
-TIER_2 = {"volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year"}
+TIER_2 = {"volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year", "field"}
 ROTATION_CAPS = {"ig_hashtag": 6, **{kind: 2 for kind in TIER_2}, "cert": 3, "cert_issuer": 3, "cause": 1, "company_country": 1, "study_country": 0, "country": 0, "x_verified": 1}
 EVENT_TAG_PARTS = ("week", "conf", "hack", "summit", "meetup", "opensource")
 GENERIC_TAGS = GENERIC_HASHTAGS | {"ml", "business"}
@@ -47,6 +47,7 @@ LINES = {
     "school_stage": "people here from {a} work at {b}-stage startups",
     "school_investor": "people here from {a} work at companies backed by {b}",
     "repo_lang": "people here contribute to {a} and write {b}",
+    "field": "people here studied {a}",
 }
 YOU_LINES = {
     "school": "You studied at {a}", "company": "You have worked at {a}",
@@ -70,6 +71,7 @@ YOU_LINES = {
     "school_stage": "You studied at {a} and work at a {b}-stage startup",
     "school_investor": "You studied at {a} and work at a company backed by {b}",
     "repo_lang": "You contribute to {a} and write {b}",
+    "field": "You studied {a}",
 }
 EVENT_LINES = {
     "school": "Someone who studied at {a}", "company": "Someone who has worked at {a}",
@@ -93,9 +95,10 @@ EVENT_LINES = {
     "school_stage": "Someone from {a} who works at a {b}-stage startup",
     "school_investor": "Someone from {a} who works at a company backed by {b}",
     "repo_lang": "Someone who contributes to {a} and writes {b}",
+    "field": "Someone who studied {a}",
 }
 SRC = {"school": "LinkedIn education", "company": "LinkedIn experience", "city": "LinkedIn location", "country": "LinkedIn location", "language": "LinkedIn languages", "cert": "LinkedIn certifications", "cert_issuer": "LinkedIn certifications", "volunteer": "LinkedIn volunteer experience", "cause": "LinkedIn volunteer experience", "school_company": "LinkedIn education + experience", "company_company": "LinkedIn experience", "industry": "LinkedIn company pages", "company_country": "LinkedIn company pages", "org_kind": "LinkedIn company pages", "founded_year": "LinkedIn company pages", "study_country": "LinkedIn school pages", "x_since": "X profile", "x_verified": "X profile", "hashtag": "LinkedIn posts", "tagged_company": "LinkedIn posts", "repo": "GitHub contributions", "gh_org": "GitHub organizations", "prog_lang": "GitHub repositories", "gh_since": "GitHub profile", "ig_hashtag": "Instagram hashtags", "investor": "Crunchbase investors", "funding_stage": "Crunchbase funding"}
-SRC.update({"school_industry": "LinkedIn education + current company industry", "school_stage": "LinkedIn education + Crunchbase funding", "school_investor": "LinkedIn education + Crunchbase investors", "repo_lang": "GitHub contributions + repositories"})
+SRC.update({"school_industry": "LinkedIn education + current company industry", "school_stage": "LinkedIn education + Crunchbase funding", "school_investor": "LinkedIn education + Crunchbase investors", "repo_lang": "GitHub contributions + repositories", "field": "LinkedIn education"})
 
 
 def interest_score(kind, n, total_holders, entity_id, stars=0, backed_companies=0):

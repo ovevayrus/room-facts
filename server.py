@@ -153,8 +153,8 @@ def person_detail(id: str):
 
 
 def publicly_listed(fact, pid):
-    """The pre-opt-in checklist: facts anyone may see for this person."""
-    return (fact["kind"] not in UNLISTED_KINDS and fact["eligible"] and fact["n"] >= 3
+    """The pre-opt-in checklist: facts anyone may see for this person, including ones too broad for the screens."""
+    return (fact["kind"] not in UNLISTED_KINDS and fact["n"] >= 3
             and pid in fact["holders"] and pid not in fact["hidden_holders"])
 
 
@@ -177,7 +177,8 @@ def person_facts(id: str, request: Request):
     pending = set(load_optins().get(id, {}).get("pending", [])) if private else set()
     values = [f for f in catalog.values() if id in f["all_holders"] and f["kind"] not in UNLISTED_KINDS and (private or publicly_listed(f, id))]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
-    return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None},
+    return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None,
+                "n": f["n"] if f["n"] >= 3 else None},
              **({"hidden": id in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
 
 
@@ -284,6 +285,31 @@ def me(request: Request):
     if not person:
         raise HTTPException(401, "Not opted in")
     return public_person(person)
+
+
+def both_line(line_you):
+    return "You're both " + line_you[8:] if line_you.startswith("You are ") else "You both " + line_you[4:]
+
+
+@app.get("/api/me/overlaps")
+def overlaps(request: Request):
+    """Every other opted-in person you share a fact with (n >= 3, including facts too broad for the screens), rarest first."""
+    person = auth_person(request)
+    if not person:
+        raise HTTPException(401, "Not opted in")
+    pid = person["id"]
+    mine = [f for f in snapshot()["catalog"].values() if pid in f["holders"] and f["n"] >= 3]
+    others = set().union(*(f["holders"] for f in mine)) - {pid}
+    if not others:
+        return {"people": []}
+    rows = graph().ro_query("MATCH (p:Person) WHERE p.id IN $ids AND p.opted_in=true RETURN p.id, p.name, p.avatar, p.linkedin", {"ids": sorted(others)}).result_set
+    people = []
+    for other, name, avatar, li in rows:
+        shared = sorted((f for f in mine if other in f["holders"]), key=lambda f: (f["n"], f["id"]))
+        people.append({"name": name or "", "avatar": avatar or "", "linkedin_url": f"https://www.linkedin.com/in/{li}" if li else "",
+                       "shared": [{"fact_id": f["id"], "line": both_line(f["line_you"]), "n": f["n"]} for f in shared]})
+    people.sort(key=lambda p: (p["shared"][0]["n"], -len(p["shared"]), p["name"]))
+    return {"people": people}
 
 
 @app.get("/api/fact/{id:path}/people")

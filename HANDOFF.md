@@ -70,6 +70,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 - **Merged to `main`:** #1 (CI `pytest.ini`), #3 (Instagram, Crunchbase investors and funding stage, country names), #4 (rotation variety per DATA_NOTES_3.md, plus the opt-in privacy fixes below).
 - **Open PRs:**
   - **#6** removes certifications from the phone fact lists (below).
+  - **#7** (stacked on #6) broader overlaps and the field-of-study kind (below).
   - **#5** `add_guest.py` adds people who aren't on the Luma list. Qodo has open findings (a full `enrich_linkedin.py` run overwrites added profiles, and company matching is by substring). The owner is adding guests locally instead.
   - **#2** (opened by the owner) drops the stage-demo script from the README. It touches README/HANDOFF/SPEC and may conflict with these docs.
 - **Qodo's PR #4 findings, and the fixes:**
@@ -81,6 +82,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
   6. A cookie-less re-opt-in made already-approved facts pending again. optins.json now keeps an `approved` list too.
   7. `/api/stats` counted schools and companies from raw edges, which included pending holders. It now counts from the catalog.
 - **Certifications are off the phone fact lists** (owner request: too generic). The checklist and the review card skip `cert` and `cert_issuer`. Because they're never shown, they never count for anyone who has opted in. `fact_catalog` enforces that from `p.opted_in`, so older approvals in optins.json don't matter, and `POST /api/me/facts` rejects them. They still rotate on the screens, counting only guests who haven't opted in.
+- **Broader overlaps and field of study** (owner request: two opted-in guests who share a data-science background saw nothing). `#datascience` is dropped as a generic hashtag, and field of study wasn't a fact, so the new `field` kind (`(:Person)-[:STUDIED_FIELD]->(:Field)` from `education[].field`) was added. The opt-in checklist now includes facts too broad for the screens (n ≥ 3), so they're approved, and `GET /api/me/overlaps` plus the "More in common" card on m.html show every opted-in person you share any n ≥ 3 fact with.
 - **Tested end to end in a browser:** the live screen with a QR per fact, and phone search → confirm → choose facts → opt in → see co-holders → opt out. Merged `main` was re-checked with the synthetic fixtures: a decoded screen QR, phone opt-in, the review card, and the screen's opted-in count and ticker event.
 - **Local-only pieces** (not available to a cloud session): FalkorDB in Docker, the `data/` folder, the server (`python server.py` with `PUBLIC_BASE_URL` set to the owner's ngrok domain), the ngrok tunnel, the Codex plugin, and Bright Data scraping.
 
