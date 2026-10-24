@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from build_graph import OPTINS, graph_client, load_optins, set_hidden
-from facts import eligible_facts, fact_catalog, fact_path, graph_rows, hidden_combos_from_optins, public_fact, rotation
+from facts import UNLISTED_KINDS, eligible_facts, fact_catalog, fact_path, graph_rows, hidden_combos_from_optins, public_fact, rotation
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Room Facts")
@@ -154,7 +154,8 @@ def person_detail(id: str):
 
 def publicly_listed(fact, pid):
     """The pre-opt-in checklist: facts anyone may see for this person."""
-    return fact["eligible"] and fact["n"] >= 3 and pid in fact["holders"] and pid not in fact["hidden_holders"]
+    return (fact["kind"] not in UNLISTED_KINDS and fact["eligible"] and fact["n"] >= 3
+            and pid in fact["holders"] and pid not in fact["hidden_holders"])
 
 
 def apply_hidden(g, pid, hidden):
@@ -170,7 +171,7 @@ def person_facts(id: str, request: Request):
     owner = auth_person(request)
     private = bool(owner and owner["id"] == id)
     pending = set(load_optins().get(id, {}).get("pending", [])) if private else set()
-    values = [f for f in catalog.values() if id in f["all_holders"] and (private or publicly_listed(f, id))]
+    values = [f for f in catalog.values() if id in f["all_holders"] and f["kind"] not in UNLISTED_KINDS and (private or publicly_listed(f, id))]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
     return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None},
              **({"hidden": id in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
@@ -196,7 +197,9 @@ def optin(body: OptInBody, request: Request, response: Response):
         previous = saved.get(pid, {})
         if is_owner:
             # The owner reviewed their full private list, so their choices replace the saved ones.
-            hidden, pending, approved = set(body.hide), set(), mine - set(body.hide)
+            listed = {f["id"] for f in catalog.values() if pid in f["all_holders"] and f["kind"] not in UNLISTED_KINDS}
+            hidden = set(body.hide)
+            approved, pending = listed - hidden, mine - listed - hidden
         else:
             # Without the owner's cookie, saved hides can only grow, and anything not in the
             # public checklist or approved before stays pending until the owner reviews it.
