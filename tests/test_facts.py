@@ -181,7 +181,7 @@ def test_event_and_you_grammar_all_kinds():
 
 
 def test_optin_event_uses_third_person_line(monkeypatch):
-    from fastapi import Response
+    from fastapi import Request, Response
     import server
 
     class Graph:
@@ -195,5 +195,5 @@ def test_optin_event_uses_third_person_line(monkeypatch):
     monkeypatch.setattr(server, "load_optins", lambda: {})
     monkeypatch.setattr(server, "save_optins", lambda data: None)
     monkeypatch.setattr(server, "_events", [])
-    server.optin(server.OptInBody(person_id="u0"), Response())
+    server.optin(server.OptInBody(person_id="u0"), Request({"type": "http", "headers": []}), Response())
     assert server._events[0]["text"] == "Someone who speaks Hindi just opted in"

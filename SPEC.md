@@ -11,7 +11,7 @@ Project folder: `C:\Users\oveva\01winningiphones\roomfacts` (Windows, Python 3.1
 1. The screens and every public endpoint return **counts only**. A fact needs `n >= MIN_N` (default 3) holders to appear anywhere public. A count below 3 is never shown, not even as "fewer than 3".
 2. Names are returned only by `GET /api/fact/{id}/people`, and only when the requester is opted in (valid token cookie) **and** holds that fact. It returns only holders who are also opted in.
 3. People can hide any of their facts (wrong data). Hidden edges don't count anywhere.
-4. Opt-in state survives a graph rebuild: persist it to `data/optins.json` (`{person_id: {"opted_in_at": iso, "hidden": [fact_id, ...]}}`) and re-apply it after loading.
+4. Opt-in state survives a graph rebuild: persist it to `data/optins.json` (`{person_id: {"opted_in_at": iso, "hidden": [fact_id, ...], "pending": [fact_id, ...], "tokens": [sha256, ...]}}`) and re-apply it after loading. `pending` facts were never shown to the person, so they don't count anywhere until the owner approves them.
 
 ## Inputs
 
@@ -98,10 +98,11 @@ Static pages: `GET /` redirects to `/screen`; `GET /screen` serves `static/scree
 | GET | `/api/events?since=<iso>` | recent anonymous opt-in events: `{at, text}`, e.g. "Someone who studied at UC Berkeley just opted in". Only mention eligible facts. Keep the last 50 in memory |
 | GET | `/api/people/search?q=` | at most 8 `{id, name, avatar}` (q ≥ 2 chars, case-insensitive substring on name and LinkedIn slug) |
 | GET | `/api/person/{id}` | `{id, name, avatar, linkedin}` |
-| GET | `/api/person/{id}/facts` | that person's facts: `[{fact_id or null, kind, line_you ("You studied at UC Berkeley"), n_if_eligible or null, hidden}]` |
-| POST | `/api/optin` | body `{person_id, hide:[fact_id…]}`. Sets `opted_in`, hides those edges, persists to `data/optins.json`, issues a random token stored server-side and set as an httpOnly cookie `rf_token` (SameSite=Lax), and records an event. Returns `{ok, person}` |
+| GET | `/api/person/{id}/facts` | that person's facts: `[{fact_id or null, kind, line_you ("You studied at UC Berkeley"), n_if_eligible or null}]`. Without the person's own `rf_token`, only their public facts (eligible, n ≥ 3, not hidden or pending). With it, every fact, plus `hidden` and `pending` |
+| POST | `/api/optin` | body `{person_id, hide:[fact_id…]}`. Sets `opted_in`, hides those edges, persists to `data/optins.json`, issues a random token stored server-side and set as an httpOnly cookie `rf_token` (SameSite=Lax), and records an event. Without the person's own `rf_token`, saved hides are kept (the union with `hide`) and facts not in the public checklist become `pending`; only the authenticated owner can un-hide. Returns `{ok, person}` |
 | POST | `/api/optout` | clears the cookie's person: `opted_in=false` and removed from optins.json |
 | GET | `/api/me` | the cookie's person or 401 |
+| POST | `/api/me/facts` | the cookie's person (401 otherwise) reviews their facts: body `{hide:[fact_id…], show:[fact_id…]}`. `show` approves pending facts and un-hides hidden ones. Returns the private `/api/person/{id}/facts` list |
 | GET | `/api/fact/{id}/people` | the privacy rule 2 check (403 otherwise). Returns `{people:[{name, avatar, linkedin_url}], hidden_count}` |
 
 Keep tokens in `data/optins.json` as a SHA-256 hash so restarts don't log people out. Use parameterized Cypher everywhere; labels and relationship types come only from the code's own fixed table.
@@ -121,6 +122,7 @@ Keep tokens in `data/optins.json` as a SHA-256 hash so restarts don't log people
 4. "Your facts" lists `/api/person/{id}/facts` as checkboxes, all checked, with the note "Uncheck anything that's wrong. It won't count." Then the button "Opt in and see who else".
 5. After `POST /api/optin`, show for the scanned fact (or each of their eligible facts if no `f`) the opted-in co-holders from `/api/fact/{id}/people`, with a LinkedIn link and "+{hidden_count} haven't opted in yet". Add a "Leave Room Facts" button that calls `/api/optout`.
 6. If `/api/me` already works, skip straight to step 5.
+7. Step 5 also shows "Review your facts": the full private list with a checkbox each (pending and hidden unchecked) and "Save my facts", which calls `POST /api/me/facts`.
 
 ## Verification
 

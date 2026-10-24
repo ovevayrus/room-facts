@@ -137,8 +137,8 @@ def graph_rows(graph):
 
 
 def hidden_combos_from_optins(optins):
-    """Read combo-only suppressions without changing their shared graph edges."""
-    return {pid: {fid for fid in state.get("hidden", []) if str(fid).partition(":")[0] in SEPARATE_HIDDEN_COMBOS}
+    """Per-fact suppressions that leave shared graph edges alone: hidden combos plus facts pending owner review."""
+    return {pid: {fid for fid in state.get("hidden", []) if str(fid).partition(":")[0] in SEPARATE_HIDDEN_COMBOS} | set(state.get("pending", []))
             for pid, state in optins.items() if isinstance(state, dict)}
 
 
@@ -230,7 +230,8 @@ def fact_catalog(rows, min_n=None, max_n=None, hidden_combos=None):
     for kind in [*KINDS, "cert_issuer", *ORG_PATHS]:
         for eid, holders in by_kind[kind].items():
             sample = next(iter(holders.values()))
-            visible = {p: value for p, value in holders.items() if not value["hidden"]}
+            fid = f"{kind}:{eid}"
+            visible = {p: value for p, value in holders.items() if not value["hidden"] and fid not in hidden_combos.get(p, ())}
             add(kind, [eid], [sample], visible, holders, set(holders) - set(visible))
     for kind in COMBO_PATHS:
         # Keep hidden, sub-threshold combos for personal review; add() enforces the public floor.

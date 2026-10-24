@@ -119,3 +119,62 @@ def test_hidden_school_industry_combo_preserves_plain_facts(monkeypatch):
             raise AssertionError("combo hiding must not change graph edges")
 
     set_hidden(Graph(), "p0", fid)
+
+
+def optin_app(monkeypatch, rows, saved):
+    class Graph:
+        def query(self, query, params):
+            pass
+
+    monkeypatch.setattr(server, "graph", lambda: Graph())
+    monkeypatch.setattr(server, "graph_rows", lambda graph: rows)
+    monkeypatch.setattr(server, "_cache", {"at": 0.0, "catalog": {}, "facts": [], "generated_at": ""})
+    monkeypatch.setattr(server, "person_row", lambda pid: {"id": pid, "name": "", "avatar": "", "linkedin": "", "opted_in": pid in saved})
+    monkeypatch.setattr(server, "load_optins", lambda: saved)
+    monkeypatch.setattr(server, "save_optins", lambda state: saved.update(state))
+    monkeypatch.setattr(server, "_events", [])
+    return TestClient(server.app)
+
+
+def test_reoptin_without_owner_cookie_keeps_saved_hides(monkeypatch):
+    combo = "school_company:uni>co"
+    rows = []
+    for pid in ("p0", "p1", "p2", "p3"):
+        rows += [row(pid, "STUDIED_AT", "School", "uni", "Example U"), row(pid, "WORKED_AT", "Company", "co", "Example Co")]
+    rows += [row("school-only", "STUDIED_AT", "School", "uni", "Example U")]
+    saved = {"p0": {"hidden": [combo], "pending": [], "tokens": [hashlib.sha256(b"own-token").hexdigest()]}}
+    client = optin_app(monkeypatch, rows, saved)
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert combo in saved["p0"]["hidden"]
+    assert "p0" not in server.snapshot(force=True)["catalog"][combo]["holders"]
+
+    client.cookies.set("rf_token", "own-token")
+    saved["p0"]["tokens"].append(hashlib.sha256(b"own-token").hexdigest())
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["hidden"] == []
+
+
+def test_unlisted_facts_stay_pending_until_owner_approves(monkeypatch):
+    rows = [row(pid, "CERTIFIED", "Cert", "rare", "Rare Cert") for pid in ("p0", "p1")]
+    rows += [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
+    saved = {}
+    client = optin_app(monkeypatch, rows, saved)
+    assert [f["fact_id"] for f in client.get("/api/person/p0/facts").json()] == ["school:uni"]
+    assert client.post("/api/me/facts", json={"show": ["cert:rare"]}).status_code == 401
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["pending"] == ["cert:rare"]
+
+    rows += [row("p3", "CERTIFIED", "Cert", "rare", "Rare Cert")]
+    rare = server.snapshot(force=True)["catalog"]["cert:rare"]
+    assert rare["n"] == 2 and "p0" not in rare["holders"] and not rare["eligible"]
+    private = {f["fact_id"]: f for f in client.get("/api/person/p0/facts").json()}
+    assert private["cert:rare"]["pending"] and not private["cert:rare"]["hidden"]
+    assert not private["school:uni"]["pending"]
+
+    assert client.post("/api/me/facts", json={"show": ["cert:rare"], "hide": ["cert:rare"]}).status_code == 422
+    assert client.post("/api/me/facts", json={"show": ["company:nope"]}).status_code == 422
+    reviewed = {f["fact_id"]: f for f in client.post("/api/me/facts", json={"show": ["cert:rare"], "hide": ["school:uni"]}).json()}
+    assert saved["p0"]["pending"] == [] and saved["p0"]["hidden"] == ["school:uni"]
+    assert not reviewed["cert:rare"]["pending"]
+    rare = server.snapshot(force=True)["catalog"]["cert:rare"]
+    assert rare["n"] == 3 and rare["eligible"] and "p0" in rare["holders"]
