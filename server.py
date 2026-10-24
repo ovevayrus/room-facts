@@ -115,7 +115,7 @@ def stats():
     counts = {}
     for label in ("School", "Company", "Country", "City"):
         counts[label] = int(g.ro_query(f"MATCH (:Person)-[r]->(x:{label}) WHERE r.hidden=false RETURN count(DISTINCT x)").result_set[0][0] or 0)
-    minimum = int(os.getenv("MIN_N", "3"))
+    minimum = max(3, int(os.getenv("MIN_N", "3")))
     tops = {}
     for label, key in (("School", "top_schools"), ("Company", "top_companies")):
         rows = g.ro_query(f"MATCH (p:Person)-[r]->(x:{label}) WHERE r.hidden=false WITH x, count(DISTINCT p) AS n WHERE n >= $min RETURN x.name, n ORDER BY n DESC, x.name LIMIT 3", {"min": minimum}).result_set

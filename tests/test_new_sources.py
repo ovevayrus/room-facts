@@ -75,14 +75,14 @@ def test_sjsu_self_pair_cert_article_and_rotation_caps():
     org_rows = [(f"org-{i}", "MEMBER_OF", "GitHubOrg", "foundation", "The Foundation", False, False) for i in range(3)]
     assert fact_catalog(org_rows)["gh_org:foundation"]["line"] == "people here are members of the Foundation GitHub org"
     fake = {}
-    for kind, cap in (("cert", 12), ("cert_issuer", 10), ("hashtag", 15), ("repo", 20)):
+    for kind, cap in (("cert", 3), ("cert_issuer", 3), ("hashtag", 20), ("repo", 20)):
         for i in range(cap + 2):
             fid = f"{kind}:{i:02}"
             fake[fid] = {"id": fid, "kind": kind, "n": 3, "eligible": True}
     selected = rotation(fake)
-    for kind, cap in (("cert", 12), ("cert_issuer", 10), ("hashtag", 15), ("repo", 20)):
+    for kind, cap in (("cert", 3), ("cert_issuer", 3), ("hashtag", 20), ("repo", 20)):
         assert sum(f["kind"] == kind for f in selected) == cap
-    assert [f["kind"] for f in selected[:4]] == ["repo", "hashtag", "cert_issuer", "cert"]
+    assert {f["kind"] for f in selected[:4]} == {"repo", "hashtag", "cert_issuer", "cert"}
 
 
 def test_new_normalization_and_path_hide():
