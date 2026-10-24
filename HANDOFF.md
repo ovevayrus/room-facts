@@ -70,7 +70,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 - **Merged to `main`:** #1 (CI `pytest.ini`).
 - **Open PRs:**
   - **#3** Instagram, Crunchbase investors and funding stage, plus country names. CI is green and Qodo's 6 findings are resolved. **Ready to merge.**
-  - **#4** (stacked on #3) rotation variety (DATA_NOTES_3.md): per-kind max group sizes, the S/L/M count spread, an interest score, and the combo kinds school_industry, school_stage, school_investor and repo_lang. Qodo flagged 3 bugs, then 2 security findings on re-review (below). All 5 are fixed (61 tests pass locally with FalkorDB). Waiting on CI and Qodo's re-review.
+  - **#4** (stacked on #3) rotation variety (DATA_NOTES_3.md): per-kind max group sizes, the S/L/M count spread, an interest score, and the combo kinds school_industry, school_stage, school_investor and repo_lang. Qodo flagged 3 bugs, then 2 security findings, then 2 more on the next re-review (below). All 7 are fixed (63 tests pass locally with FalkorDB). Waiting on CI and Qodo's re-review.
   - **#2** (opened by the owner) drops the stage-demo script from the README. It touches README/HANDOFF/SPEC and may conflict with these docs.
 - **Qodo's PR #4 findings, and the fixes:**
   1. `/api/person/{id}/facts` leaked hidden and sub-threshold facts unauthenticated. Now, without the person's own `rf_token`, it returns only their public (n ≥ 3, not hidden) facts.
@@ -78,6 +78,8 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
   3. Hiding a combo hid its underlying edges. Combo hides are now stored per person.
   4. A re-opt-in without the owner's cookie cleared saved hides. Now saved hides only grow without `rf_token`; only the authenticated owner can un-hide.
   5. Facts not shown in the public checklist (sub-threshold ones) counted after opt-in without review. They're now saved as `pending` in optins.json and suppressed per fact (not by hiding edges, so path facts like industry keep their counts). The owner approves or hides them via `POST /api/me/facts` from a "Review your facts" card on m.html.
+  6. A cookie-less re-opt-in made already-approved facts pending again. optins.json now keeps an `approved` list too.
+  7. `/api/stats` counted schools and companies from raw edges, which included pending holders. It now counts from the catalog.
 - **Tested end to end in a browser earlier:** the live screen with a QR per fact, and phone search → confirm → choose facts → opt in → see co-holders → opt out.
 - **Local-only pieces** (not available to a cloud session): FalkorDB in Docker, the `data/` folder, the server (`python server.py` with `PUBLIC_BASE_URL` set to the owner's ngrok domain), the ngrok tunnel, the Codex plugin, and Bright Data scraping.
 

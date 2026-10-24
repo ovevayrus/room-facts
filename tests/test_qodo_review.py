@@ -178,3 +178,37 @@ def test_unlisted_facts_stay_pending_until_owner_approves(monkeypatch):
     assert not reviewed["cert:rare"]["pending"]
     rare = server.snapshot(force=True)["catalog"]["cert:rare"]
     assert rare["n"] == 3 and rare["eligible"] and "p0" in rare["holders"]
+
+
+def test_cookieless_reoptin_keeps_approvals(monkeypatch):
+    rows = [row(pid, "CERTIFIED", "Cert", "rare", "Rare Cert") for pid in ("p0", "p1")]
+    saved = {}
+    client = optin_app(monkeypatch, rows, saved)
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["pending"] == ["cert:rare"]
+    assert client.post("/api/me/facts", json={"show": ["cert:rare"]}).status_code == 200
+    assert saved["p0"]["approved"] == ["cert:rare"]
+    client.cookies.clear()
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["pending"] == [] and saved["p0"]["approved"] == ["cert:rare"]
+    assert "p0" in server.snapshot(force=True)["catalog"]["cert:rare"]["holders"]
+
+
+def test_stats_exclude_pending_holders(monkeypatch):
+    class Result:
+        def __init__(self, rows):
+            self.result_set = rows
+
+    class Graph:
+        def ro_query(self, query, params=None):
+            return Result([(3, 3, 1, 0)])
+
+    rows = [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
+    rows += [row(pid, "WORKED_AT", "Company", "co", "Example Co") for pid in ("p0", "p1", "p2")]
+    monkeypatch.setattr(server, "graph", lambda: Graph())
+    monkeypatch.setattr(server, "graph_rows", lambda graph: rows)
+    monkeypatch.setattr(server, "load_optins", lambda: {"p0": {"pending": ["school:uni"]}})
+    monkeypatch.setattr(server, "_cache", {"at": 0.0, "catalog": {}, "facts": [], "generated_at": ""})
+    stats = server.stats()
+    assert stats["top_schools"] == []
+    assert stats["top_companies"] == [{"name": "Example Co", "count": 3}]

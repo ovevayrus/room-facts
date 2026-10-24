@@ -112,15 +112,15 @@ def stats():
     g = graph()
     rows = g.ro_query("MATCH (p:Person) RETURN count(p), sum(CASE WHEN p.matched THEN 1 ELSE 0 END), sum(CASE WHEN p.opted_in THEN 1 ELSE 0 END), sum(CASE WHEN p.github_matched THEN 1 ELSE 0 END)").result_set
     guests, matched, opted, github_matched = rows[0] if rows else (0, 0, 0, 0)
-    counts = {}
-    for label in ("School", "Company", "Country", "City"):
-        counts[label] = int(g.ro_query(f"MATCH (:Person)-[r]->(x:{label}) WHERE r.hidden=false RETURN count(DISTINCT x)").result_set[0][0] or 0)
+    # Count from the catalog so hidden and pending holders are excluded exactly as on the screens.
+    catalog = snapshot()["catalog"].values()
+    counts = {kind: sum(1 for f in catalog if f["kind"] == kind and f["n"]) for kind in ("school", "company", "country", "city")}
     minimum = max(3, int(os.getenv("MIN_N", "3")))
     tops = {}
-    for label, key in (("School", "top_schools"), ("Company", "top_companies")):
-        rows = g.ro_query(f"MATCH (p:Person)-[r]->(x:{label}) WHERE r.hidden=false WITH x, count(DISTINCT p) AS n WHERE n >= $min RETURN x.name, n ORDER BY n DESC, x.name LIMIT 3", {"min": minimum}).result_set
-        tops[key] = [{"name": name, "count": int(n or 0)} for name, n in rows]
-    return {"guests": int(guests or 0), "linkedin_profiles_matched": int(matched or 0), "github_matched": int(github_matched or 0), "schools": counts["School"], "companies": counts["Company"], "countries": counts["Country"], "cities": counts["City"], "opted_in": int(opted or 0), **tops}
+    for kind, key in (("school", "top_schools"), ("company", "top_companies")):
+        top = sorted((f for f in catalog if f["kind"] == kind and f["n"] >= minimum), key=lambda f: (-f["n"], f["entities"][0]["name"]))[:3]
+        tops[key] = [{"name": f["entities"][0]["name"], "count": f["n"]} for f in top]
+    return {"guests": int(guests or 0), "linkedin_profiles_matched": int(matched or 0), "github_matched": int(github_matched or 0), "schools": counts["school"], "companies": counts["company"], "countries": counts["country"], "cities": counts["city"], "opted_in": int(opted or 0), **tops}
 
 
 @app.get("/api/events")
@@ -196,20 +196,21 @@ def optin(body: OptInBody, request: Request, response: Response):
         previous = saved.get(pid, {})
         if is_owner:
             # The owner reviewed their full private list, so their choices replace the saved ones.
-            hidden, pending = set(body.hide), set()
+            hidden, pending, approved = set(body.hide), set(), mine - set(body.hide)
         else:
-            # Without the owner's cookie, saved hides can only grow, and anything
-            # not in the public checklist stays pending until the owner reviews it.
+            # Without the owner's cookie, saved hides can only grow, and anything not in the
+            # public checklist or approved before stays pending until the owner reviews it.
             shown = {f["id"] for f in catalog.values() if publicly_listed(f, pid)}
             hidden = set(previous.get("hidden", [])) | set(body.hide)
-            pending = (set(previous.get("pending", [])) | (mine - shown)) - hidden
+            approved = (set(previous.get("approved", [])) | shown) - hidden
+            pending = (set(previous.get("pending", [])) | (mine - approved)) - hidden
         g = graph()
         apply_hidden(g, pid, hidden)
         at = now_iso()
         g.query("MATCH (p:Person {id:$pid}) SET p.opted_in=true, p.opted_in_at=$at", {"pid": pid, "at": at})
         token = secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        saved[pid] = {"opted_in_at": at, "hidden": sorted(hidden), "pending": sorted(pending), "tokens": [digest]}
+        saved[pid] = {"opted_in_at": at, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved), "tokens": [digest]}
         save_optins(saved)
         snap = snapshot(force=True)
         suitable = next((f for f in snap["catalog"].values() if f["eligible"] and pid in f["holders"]), None)
@@ -243,8 +244,9 @@ def review_facts(body: FactReviewBody, request: Request):
             raise HTTPException(422, "A fact does not belong to this person")
         hidden = (set(state.get("hidden", [])) | hide) - show
         pending = set(state.get("pending", [])) - hide - show
+        approved = (set(state.get("approved", [])) | show) - hide
         apply_hidden(graph(), pid, hidden)
-        saved[pid] = {**state, "hidden": sorted(hidden), "pending": sorted(pending)}
+        saved[pid] = {**state, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved)}
         save_optins(saved)
         snapshot(force=True)
     return person_facts(pid, request)

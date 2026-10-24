@@ -11,7 +11,7 @@ Project folder: `C:\Users\oveva\01winningiphones\roomfacts` (Windows, Python 3.1
 1. The screens and every public endpoint return **counts only**. A fact needs `n >= MIN_N` (default 3) holders to appear anywhere public. A count below 3 is never shown, not even as "fewer than 3".
 2. Names are returned only by `GET /api/fact/{id}/people`, and only when the requester is opted in (valid token cookie) **and** holds that fact. It returns only holders who are also opted in.
 3. People can hide any of their facts (wrong data). Hidden edges don't count anywhere.
-4. Opt-in state survives a graph rebuild: persist it to `data/optins.json` (`{person_id: {"opted_in_at": iso, "hidden": [fact_id, ...], "pending": [fact_id, ...], "tokens": [sha256, ...]}}`) and re-apply it after loading. `pending` facts were never shown to the person, so they don't count anywhere until the owner approves them.
+4. Opt-in state survives a graph rebuild: persist it to `data/optins.json` (`{person_id: {"opted_in_at": iso, "hidden": [fact_id, ...], "pending": [fact_id, ...], "approved": [fact_id, ...], "tokens": [sha256, ...]}}`) and re-apply it after loading. `pending` facts were never shown to the person, so they don't count anywhere (screens, `/api/stats`, people lists) until the owner approves them. `approved` holds facts the person accepted in the checklist or approved later, so a re-opt-in without the cookie doesn't make them pending again.
 
 ## Inputs
 

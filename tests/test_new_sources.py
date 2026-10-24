@@ -107,13 +107,13 @@ def test_stats_casts_all_counts(monkeypatch):
             self.result_set = rows
     class Graph:
         def ro_query(self, query, params=None):
-            if "RETURN count(p), sum" in query:
-                return Result([(6.0, 5.0, 2.0, 4.0)])
-            if "RETURN count(DISTINCT x)" in query:
-                return Result([(3.0,)])
-            return Result([("Acme", 3.0)])
+            assert "RETURN count(p), sum" in query
+            return Result([(6.0, 5.0, 2.0, 4.0)])
+    catalog = fact_catalog([(f"u{i}", "WORKED_AT", "Company", "acme", "Acme", False, False) for i in range(3)])
     monkeypatch.setattr(server, "graph", lambda: Graph())
+    monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     result = server.stats()
+    assert result["top_companies"] == [{"name": "Acme", "count": 3}]
     assert result["github_matched"] == 4
     assert all(type(value) is int for key, value in result.items() if key not in {"top_schools", "top_companies"})
     assert all(type(item["count"]) is int for key in ("top_schools", "top_companies") for item in result[key])

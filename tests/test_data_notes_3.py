@@ -32,16 +32,16 @@ def test_stats_top_groups_also_keep_three_person_floor(monkeypatch):
 
     class Graph:
         def ro_query(self, query, params=None):
-            if params is not None:
-                assert params["min"] == 3
-                return Result([])
-            if "RETURN count(p), sum" in query:
-                return Result([(10, 10, 0, 0)])
-            return Result([(0,)])
+            assert "RETURN count(p), sum" in query
+            return Result([(10, 10, 0, 0)])
 
+    from facts import fact_catalog
+    catalog = fact_catalog([(pid, "STUDIED_AT", "School", "uni", "Example U", False, False) for pid in ("p0", "p1")], min_n=1)
     monkeypatch.setenv("MIN_N", "1")
     monkeypatch.setattr(server, "graph", lambda: Graph())
+    monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     assert server.stats()["top_schools"] == []
+    assert server.stats()["schools"] == 1
 
 
 def test_rotation_spreads_counts_keeps_broad_facts_in_catalog():
