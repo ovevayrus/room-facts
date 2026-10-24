@@ -21,7 +21,7 @@ def test_eligibility_hidden_and_duplicate_path_preference():
 
 
 def test_above_maximum_is_not_public():
-    rows = [(f"u{i}", "SPEAKS", "Language", "hindi", "Hindi", False, False) for i in range(13)]
+    rows = [(f"u{i}", "SPEAKS", "Language", "hindi", "Hindi", False, False) for i in range(26)]
     assert not fact_catalog(rows)["language:hindi"]["eligible"]
 
 
@@ -29,12 +29,12 @@ def row(pid, rel, label, eid, name, current=False, hidden=False):
     return (pid, rel, label, eid, name, hidden, False, current)
 
 
-def test_minimum_and_maximum_stay_three_and_twelve():
+def test_minimum_and_kind_maximum():
     rows = []
     for eid, n in (("two", 2), ("three", 3), ("twelve", 12), ("thirteen", 13)):
         rows += [row(f"{eid}-{i}", "SPEAKS", "Language", eid, eid) for i in range(n)]
     catalog = fact_catalog(rows)
-    assert [catalog[f"language:{eid}"]["eligible"] for eid in ("two", "three", "twelve", "thirteen")] == [False, True, True, False]
+    assert [catalog[f"language:{eid}"]["eligible"] for eid in ("two", "three", "twelve", "thirteen")] == [False, True, True, True]
 
 
 def test_current_and_past_company_lines_and_stealth():
@@ -127,8 +127,9 @@ def test_rebuild_creates_issuer_relationship_and_graph_rows_reads_it(tmp_path, m
     assert fact_catalog(graph_rows(graph))["cert_issuer:hugging-face"]["n"] == 3
 
 
-def test_round_robin_and_caps_leave_catalog_facts_available(monkeypatch):
+def test_rotation_caps_leave_catalog_facts_available(monkeypatch):
     import server
+    from fastapi import Request
     rows = []
     for kind, rel, label, count in (("cert", "CERTIFIED", "Cert", 14), ("cert_issuer", "ISSUED_BY", "Issuer", 12), ("language", "SPEAKS", "Language", 2)):
         for index in range(count):
@@ -136,16 +137,15 @@ def test_round_robin_and_caps_leave_catalog_facts_available(monkeypatch):
             rows += [row(f"{kind}-{index}-{i}", rel, label, f"{kind}-{index:02}", f"{kind} {index}") for i in range(n)]
     catalog = fact_catalog(rows)
     ids = [f["id"] for f in rotation(catalog)]
-    assert sum(fid.startswith("cert:") for fid in ids) == 12
-    assert sum(fid.startswith("cert_issuer:") for fid in ids) == 10
-    assert [f["kind"] for f in rotation(catalog)[:3]] == ["language", "cert_issuer", "cert"]
-    assert [f["id"] for f in rotation(catalog) if f["kind"] == "cert"] == [f"cert:cert-{i:02}" for i in (0, 3, 6, 9, 12, 1, 4, 7, 10, 13, 2, 5)]
+    assert sum(fid.startswith("cert:") for fid in ids) == 3
+    assert sum(fid.startswith("cert_issuer:") for fid in ids) == 3
+    assert [f["kind"] for f in rotation(catalog)[:3]] == ["language", "cert", "cert_issuer"]
     left_out = catalog["cert:cert-08"]
     assert left_out["eligible"] and left_out not in rotation(catalog)
     monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     monkeypatch.setattr(server, "person_row", lambda pid: {"id": pid})
     assert server.fact_detail(left_out["id"])["id"] == left_out["id"]
-    assert any(f["fact_id"] == left_out["id"] for f in server.person_facts("cert-8-0"))
+    assert any(f["fact_id"] == left_out["id"] for f in server.person_facts("cert-8-0", Request({"type": "http", "headers": []})))
     monkeypatch.setattr(server, "_events", [{"at": "2026-10-24T00:00:00+00:00", "text": "A capped fact", "fact_id": left_out["id"]}])
     assert server.events() == [{"at": "2026-10-24T00:00:00+00:00", "text": "A capped fact"}]
 
@@ -168,7 +168,7 @@ def test_event_and_you_grammar_all_kinds():
             assert fact["line"] == "people here went through Y Combinator"
         assert fact["line_event"] == "Someone who " + event
         assert fact["line_you"] == "You " + you
-        assert rotation({fact["id"]: fact}) == [fact]
+        assert rotation({fact["id"]: fact}) == ([] if kind == "country" else [fact])
     rows = []
     for i in range(3):
         rows += [row(f"path-{i}", "STUDIED_AT", "School", "nyu", "NYU"), row(f"path-{i}", "WORKED_AT", "Company", "mote", "Mote")]
@@ -181,7 +181,7 @@ def test_event_and_you_grammar_all_kinds():
 
 
 def test_optin_event_uses_third_person_line(monkeypatch):
-    from fastapi import Response
+    from fastapi import Request, Response
     import server
 
     class Graph:
@@ -195,5 +195,5 @@ def test_optin_event_uses_third_person_line(monkeypatch):
     monkeypatch.setattr(server, "load_optins", lambda: {})
     monkeypatch.setattr(server, "save_optins", lambda data: None)
     monkeypatch.setattr(server, "_events", [])
-    server.optin(server.OptInBody(person_id="u0"), Response())
+    server.optin(server.OptInBody(person_id="u0"), Request({"type": "http", "headers": []}), Response())
     assert server._events[0]["text"] == "Someone who speaks Hindi just opted in"

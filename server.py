@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from build_graph import OPTINS, graph_client, load_optins, set_hidden
-from facts import eligible_facts, fact_catalog, fact_path, graph_rows, public_fact, rotation
+from facts import eligible_facts, fact_catalog, fact_path, graph_rows, hidden_combos_from_optins, public_fact, rotation
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Room Facts")
@@ -35,7 +35,7 @@ def now_iso():
 def snapshot(force=False):
     with _lock:
         if force or time.monotonic() - _cache["at"] >= 5:
-            catalog = fact_catalog(graph_rows(graph()))
+            catalog = fact_catalog(graph_rows(graph()), hidden_combos=hidden_combos_from_optins(load_optins()))
             _cache.update(at=time.monotonic(), catalog=catalog, facts=[public_fact(f) for f in rotation(catalog)], generated_at=now_iso())
         return _cache
 
@@ -112,15 +112,15 @@ def stats():
     g = graph()
     rows = g.ro_query("MATCH (p:Person) RETURN count(p), sum(CASE WHEN p.matched THEN 1 ELSE 0 END), sum(CASE WHEN p.opted_in THEN 1 ELSE 0 END), sum(CASE WHEN p.github_matched THEN 1 ELSE 0 END)").result_set
     guests, matched, opted, github_matched = rows[0] if rows else (0, 0, 0, 0)
-    counts = {}
-    for label in ("School", "Company", "Country", "City"):
-        counts[label] = int(g.ro_query(f"MATCH (:Person)-[r]->(x:{label}) WHERE r.hidden=false RETURN count(DISTINCT x)").result_set[0][0] or 0)
-    minimum = int(os.getenv("MIN_N", "3"))
+    # Count from the catalog so hidden and pending holders are excluded exactly as on the screens.
+    catalog = snapshot()["catalog"].values()
+    counts = {kind: sum(1 for f in catalog if f["kind"] == kind and f["n"]) for kind in ("school", "company", "country", "city")}
+    minimum = max(3, int(os.getenv("MIN_N", "3")))
     tops = {}
-    for label, key in (("School", "top_schools"), ("Company", "top_companies")):
-        rows = g.ro_query(f"MATCH (p:Person)-[r]->(x:{label}) WHERE r.hidden=false WITH x, count(DISTINCT p) AS n WHERE n >= $min RETURN x.name, n ORDER BY n DESC, x.name LIMIT 3", {"min": minimum}).result_set
-        tops[key] = [{"name": name, "count": int(n or 0)} for name, n in rows]
-    return {"guests": int(guests or 0), "linkedin_profiles_matched": int(matched or 0), "github_matched": int(github_matched or 0), "schools": counts["School"], "companies": counts["Company"], "countries": counts["Country"], "cities": counts["City"], "opted_in": int(opted or 0), **tops}
+    for kind, key in (("school", "top_schools"), ("company", "top_companies")):
+        top = sorted((f for f in catalog if f["kind"] == kind and f["n"] >= minimum), key=lambda f: (-f["n"], f["entities"][0]["name"]))[:3]
+        tops[key] = [{"name": f["entities"][0]["name"], "count": f["n"]} for f in top]
+    return {"guests": int(guests or 0), "linkedin_profiles_matched": int(matched or 0), "github_matched": int(github_matched or 0), "schools": counts["school"], "companies": counts["company"], "countries": counts["country"], "cities": counts["city"], "opted_in": int(opted or 0), **tops}
 
 
 @app.get("/api/events")
@@ -152,13 +152,28 @@ def person_detail(id: str):
     return public_person(person_row(id))
 
 
+def publicly_listed(fact, pid):
+    """The pre-opt-in checklist: facts anyone may see for this person."""
+    return fact["eligible"] and fact["n"] >= 3 and pid in fact["holders"] and pid not in fact["hidden_holders"]
+
+
+def apply_hidden(g, pid, hidden):
+    g.query("MATCH (p:Person {id:$pid})-[r]->() SET r.hidden=false", {"pid": pid})
+    for fid in hidden:
+        set_hidden(g, pid, fid)
+
+
 @app.get("/api/person/{id}/facts")
-def person_facts(id: str):
+def person_facts(id: str, request: Request):
     person_row(id)
     catalog = snapshot()["catalog"]
-    values = [f for f in catalog.values() if id in f["all_holders"]]
+    owner = auth_person(request)
+    private = bool(owner and owner["id"] == id)
+    pending = set(load_optins().get(id, {}).get("pending", [])) if private else set()
+    values = [f for f in catalog.values() if id in f["all_holders"] and (private or publicly_listed(f, id))]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
-    return [{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None, "hidden": id in f["hidden_holders"]} for f in values]
+    return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None},
+             **({"hidden": id in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
 
 
 class OptInBody(BaseModel):
@@ -167,31 +182,74 @@ class OptInBody(BaseModel):
 
 
 @app.post("/api/optin")
-def optin(body: OptInBody, response: Response):
+def optin(body: OptInBody, request: Request, response: Response):
     person = person_row(body.person_id)
+    pid = body.person_id
+    owner = auth_person(request)
+    is_owner = bool(owner and owner["id"] == pid)
     with _lock:
         catalog = snapshot(force=True)["catalog"]
-        allowed = {f["id"] for f in catalog.values() if body.person_id in f["all_holders"]}
-        if any(fid not in allowed for fid in body.hide):
+        mine = {f["id"] for f in catalog.values() if pid in f["all_holders"]}
+        if any(fid not in mine for fid in body.hide):
             raise HTTPException(422, "A hidden fact does not belong to this person")
+        saved = load_optins()
+        previous = saved.get(pid, {})
+        if is_owner:
+            # The owner reviewed their full private list, so their choices replace the saved ones.
+            hidden, pending, approved = set(body.hide), set(), mine - set(body.hide)
+        else:
+            # Without the owner's cookie, saved hides can only grow, and anything not in the
+            # public checklist or approved before stays pending until the owner reviews it.
+            shown = {f["id"] for f in catalog.values() if publicly_listed(f, pid)}
+            hidden = set(previous.get("hidden", [])) | set(body.hide)
+            approved = (set(previous.get("approved", [])) | shown) - hidden
+            pending = (set(previous.get("pending", [])) | (mine - approved)) - hidden
         g = graph()
-        g.query("MATCH (p:Person {id:$pid})-[r]->() SET r.hidden=false", {"pid": body.person_id})
-        for fid in set(body.hide):
-            set_hidden(g, body.person_id, fid)
+        apply_hidden(g, pid, hidden)
         at = now_iso()
-        g.query("MATCH (p:Person {id:$pid}) SET p.opted_in=true, p.opted_in_at=$at", {"pid": body.person_id, "at": at})
+        g.query("MATCH (p:Person {id:$pid}) SET p.opted_in=true, p.opted_in_at=$at", {"pid": pid, "at": at})
         token = secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        saved = load_optins()
-        saved[body.person_id] = {"opted_in_at": at, "hidden": sorted(set(body.hide)), "tokens": [digest]}
+        saved[pid] = {"opted_in_at": at, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved), "tokens": [digest]}
         save_optins(saved)
         snap = snapshot(force=True)
-        suitable = next((f for f in snap["catalog"].values() if f["eligible"] and body.person_id in f["holders"]), None)
+        suitable = next((f for f in snap["catalog"].values() if f["eligible"] and pid in f["holders"]), None)
         if suitable:
             _events.append({"at": at, "text": suitable["line_event"] + " just opted in", "fact_id": suitable["id"]})
             del _events[:-50]
     response.set_cookie("rf_token", token, httponly=True, samesite="lax", secure=os.getenv("PUBLIC_BASE_URL", "").startswith("https://"))
     return {"ok": True, "person": public_person(person)}
+
+
+class FactReviewBody(BaseModel):
+    hide: list[str] = Field(default_factory=list)
+    show: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/me/facts")
+def review_facts(body: FactReviewBody, request: Request):
+    person = auth_person(request)
+    if not person:
+        raise HTTPException(401, "Not opted in")
+    pid = person["id"]
+    hide, show = set(body.hide), set(body.show)
+    if hide & show:
+        raise HTTPException(422, "A fact cannot be both hidden and shown")
+    with _lock:
+        saved = load_optins()
+        state = saved.get(pid, {})
+        allowed = {f["id"] for f in snapshot(force=True)["catalog"].values() if pid in f["all_holders"]}
+        allowed |= set(state.get("hidden", [])) | set(state.get("pending", []))
+        if any(fid not in allowed for fid in hide | show):
+            raise HTTPException(422, "A fact does not belong to this person")
+        hidden = (set(state.get("hidden", [])) | hide) - show
+        pending = set(state.get("pending", [])) - hide - show
+        approved = (set(state.get("approved", [])) | show) - hide
+        apply_hidden(graph(), pid, hidden)
+        saved[pid] = {**state, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved)}
+        save_optins(saved)
+        snapshot(force=True)
+    return person_facts(pid, request)
 
 
 @app.post("/api/optout")

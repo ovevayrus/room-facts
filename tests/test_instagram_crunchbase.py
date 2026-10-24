@@ -75,8 +75,9 @@ def test_investor_and_stage_count_only_current_employees():
 
     graph = Graph()
     graph_rows(graph)
-    assert all("WHERE r.current=true" in query for query in graph.queries if "BACKED_BY" in query or "AT_STAGE" in query)
-    assert "WHERE r.current=true" not in next(query for query in graph.queries if "IN_INDUSTRY" in query)
+    assert all("WHERE r.current=true" in query for query in graph.queries if "RETURN p.id, 'BACKED_BY'" in query or "RETURN p.id, 'AT_STAGE'" in query)
+    assert "WHERE r.current=true" not in next(query for query in graph.queries if "RETURN p.id, 'IN_INDUSTRY'" in query)
+    assert all("WHERE b.current=true" in query for query in graph.queries if "<-[a:STUDIED_AT]" in query)
 
 
 def test_complete_iso_country_names():
@@ -174,8 +175,8 @@ def test_new_facts_paths_hiding_templates_and_cap():
             fid = f"{kind}:{i}"
             fake[fid] = {"id": fid, "kind": kind, "n": 3, "eligible": True}
     selected = rotation(fake)
-    assert [f["kind"] for f in selected[:6]] == ["repo", "investor", "hashtag", "ig_hashtag", "org_kind", "funding_stage"]
-    assert sum(f["kind"] == "ig_hashtag" for f in selected) == 8
+    assert {f["kind"] for f in selected[:4]} == {"repo", "investor", "hashtag", "ig_hashtag"}
+    assert sum(f["kind"] == "ig_hashtag" for f in selected) == 6
 
 
 def test_graph_rows_reads_investor_as_two_hop():
@@ -189,7 +190,7 @@ def test_graph_rows_reads_investor_as_two_hop():
 
         def ro_query(self, query):
             self.queries.append(query)
-            if "BACKED_BY" in query:
+            if "RETURN p.id, 'BACKED_BY'" in query:
                 return Result([("u", "BACKED_BY", "Investor", "y-combinator", "Y Combinator", False, False, True)])
             return Result([])
 
@@ -208,8 +209,9 @@ def test_server_uses_new_fact_lines_without_new_response_fields(monkeypatch):
     detail = server.fact_detail("investor:y-combinator")
     assert set(detail) == {"id", "kind", "n", "opted_in", "line", "src", "pattern", "entities", "path"}
     assert detail["path"] == ["You", "WORKED_AT", "a company", "BACKED_BY", "Y Combinator", "2 others"]
-    personal = server.person_facts("u0")
-    assert personal == [{"fact_id": "investor:y-combinator", "kind": "investor", "line_you": "You work at a company backed by Y Combinator", "n_if_eligible": 3, "hidden": False}]
+    from fastapi import Request
+    personal = server.person_facts("u0", Request({"type": "http", "headers": []}))
+    assert personal == [{"fact_id": "investor:y-combinator", "kind": "investor", "line_you": "You work at a company backed by Y Combinator", "n_if_eligible": 3}]
     monkeypatch.setattr(server, "_events", [{"at": "2026-10-24T00:00:00+00:00", "text": catalog["investor:y-combinator"]["line_event"] + " just opted in", "fact_id": "investor:y-combinator"}])
     assert server.events()[0]["text"] == "Someone who works at a company backed by Y Combinator just opted in"
 

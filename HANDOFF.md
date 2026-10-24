@@ -60,18 +60,34 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 4. **Data comes from the Luma guest list plus Bright Data scrapers**, matched by the LinkedIn/X/Instagram handles guests gave Luma. GitHub accounts are accepted only with evidence: a published link, the GitHub profile listing their LinkedIn or X, the same website, or the same name plus location.
 5. **Codex development runs on the owner's ChatGPT subscription** (`gpt-6-sol`). The **OpenAI API key is reserved for runtime features** in the app (see Next steps). It belongs in `.env` (gitignored), which the owner creates.
 6. **The repo is public.** Qodo Code Review reviews PRs (`.pr_agent.toml`). `main` is protected: PRs plus green CI only.
+7. **Hosting is the owner's laptop plus ngrok** (decided Oct 24, about 12:10; at most ~50 opt-ins expected). FalkorDB runs in Docker, `server.py` on :8000, and ngrok exposes it. Don't move to hosted infrastructure unless asked.
+8. **After opt-in, people see overlap cards** (decided Oct 24, about 12:10): every other *opted-in* person who shares a non-hidden fact with them, with name, LinkedIn and the shared facts. It's mutual opt-in only. This is being implemented as `/api/connections` on `feat/opt-in-connect` (see Next steps 2).
 
-## Status (update this)
+## Status (update this; last updated Oct 24, about 13:30)
 
-- Data: 616 guests; 514 LinkedIn profiles; 493 company and school pages; 358 X profiles; 1,277 LinkedIn posts (2026); 208 Instagram profiles; 220 Crunchbase matches (not yet verified); 174 GitHub accounts. The Bright Data credit (~5,000 records) is mostly used.
-- The graph builds from all sources except Instagram and Crunchbase. There are **167 screen-eligible facts** across 18 kinds. All 27 tests pass.
-- Tested end to end in a browser: the live screen with a QR per fact, and phone search → confirm → choose facts → opt in → see co-holders → opt out. Opt-in state persists, and hidden facts drop out of the counts.
-- **In progress:** a Codex PR that adds Instagram hashtags and Crunchbase investors and funding stage (DATA_NOTES_2 section 5), plus country-name fixes ("studied in IT" → "Italy", "the United Kingdom").
+- **Data** (local `data/`, never in git): 616 guests; 514 LinkedIn profiles; 493 company and school pages; 358 X profiles; 1,277 LinkedIn posts (2026); 208 Instagram profiles; 220 Crunchbase records (only website-verified matches are used); 174 GitHub accounts. The Bright Data credit is mostly used.
+- **The graph** builds from every source. On the PR #4 branch there are 185 facts in rotation with mixed sizes (99 small, 57 medium, 29 large). For example: 18 studied at UC Berkeley, 10 work at Sequoia-backed companies, 17 at a stealth startup, 24 posted #sftechweek. Country-level facts are out of the rotation, at the owner's request.
+- **Merged to `main`:** #1 (CI `pytest.ini`).
+- **Open PRs:**
+  - **#3** Instagram, Crunchbase investors and funding stage, plus country names. CI is green and Qodo's 6 findings are resolved. **Ready to merge.**
+  - **#4** (stacked on #3) rotation variety (DATA_NOTES_3.md): per-kind max group sizes, the S/L/M count spread, an interest score, and the combo kinds school_industry, school_stage, school_investor and repo_lang. Qodo flagged 3 bugs, then 2 security findings, then 2 more on the next re-review (below). All 7 are fixed (63 tests pass locally with FalkorDB). Waiting on CI and Qodo's re-review.
+  - **#2** (opened by the owner) drops the stage-demo script from the README. It touches README/HANDOFF/SPEC and may conflict with these docs.
+- **Qodo's PR #4 findings, and the fixes:**
+  1. `/api/person/{id}/facts` leaked hidden and sub-threshold facts unauthenticated. Now, without the person's own `rf_token`, it returns only their public (n ≥ 3, not hidden) facts.
+  2. Dedup let study_country beat a school with the same holders. Tier-1 kinds now win.
+  3. Hiding a combo hid its underlying edges. Combo hides are now stored per person.
+  4. A re-opt-in without the owner's cookie cleared saved hides. Now saved hides only grow without `rf_token`; only the authenticated owner can un-hide.
+  5. Facts not shown in the public checklist (sub-threshold ones) counted after opt-in without review. They're now saved as `pending` in optins.json and suppressed per fact (not by hiding edges, so path facts like industry keep their counts). The owner approves or hides them via `POST /api/me/facts` from a "Review your facts" card on m.html.
+  6. A cookie-less re-opt-in made already-approved facts pending again. optins.json now keeps an `approved` list too.
+  7. `/api/stats` counted schools and companies from raw edges, which included pending holders. It now counts from the catalog.
+- **Tested end to end in a browser earlier:** the live screen with a QR per fact, and phone search → confirm → choose facts → opt in → see co-holders → opt out.
+- **Local-only pieces** (not available to a cloud session): FalkorDB in Docker, the `data/` folder, the server (`python server.py` with `PUBLIC_BASE_URL` set to the owner's ngrok domain), the ngrok tunnel, the Codex plugin, and Bright Data scraping.
 
 ## Next steps (pick in order)
 
-1. **Merge the Instagram/Crunchbase PR** once CI is green and Qodo has reviewed it. Then rebuild and eyeball the rotation for weird lines.
-2. **Demo prep:** rehearse the 90-second script in README.md. Have one audience member who holds a fact scan live (the owner's own facts are all under 3 holders). Open FalkorDB Browser with `demo_queries.cypher`.
+1. **Get PR #4 green:** check that CI passes and that Qodo marks its 3 findings resolved. Fix anything new. Then the owner merges #3, then #4 (retarget #4 to `main` after #3 merges). On the laptop afterwards: `python build_graph.py` and `python facts.py --preview 40` to eyeball the rotation.
+2. **Overlap cards (decision 8) are being built in a separate session** on branch `feat/opt-in-connect` (the worktree `../roomfacts-connect`). It adds `/api/connections` (every other opted-in person you share a visible fact with, refreshed every 15 s) and an OpenAI-assisted name lookup at opt-in (`assist.py`, key in `.env`). That session also runs the live laptop server behind ngrok. Don't build a second version. It branched from PR #3 before #4, so it will need to merge #4's `server.py` / `facts.py` / `m.html` changes when it opens its PR: the person-facts privacy rule, saved hides kept on a cookie-less re-opt-in, `pending` facts and `POST /api/me/facts`, and the rotation. `/api/connections` must use `fact["holders"]` (which already excludes hidden and pending people), never `all_holders`. Merge order: #3, then #4, then opt-in-connect.
+3. **Demo prep:** rehearse the 90-second script in README.md. Have one audience member who holds a fact scan live (the owner's own facts are all under 3 holders). Open FalkorDB Browser with `demo_queries.cypher`.
 3. **Privacy hardening before going public at the venue** (known gaps):
    - `/api/people/search` lets anyone with the URL enumerate guest names. Require ≥ 3 characters, rate-limit per IP, and return at most 5 results.
    - Opt-in has no identity check (anyone can pick anyone's name). A cheap fix: confirm by typing your own LinkedIn handle, or a one-time code shown on your Luma ticket.

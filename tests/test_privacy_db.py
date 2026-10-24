@@ -76,3 +76,12 @@ def test_people_only_opted_in_coholders(db_app):
     assert private.json()["hidden_count"] == 1
     assert client.post("/api/optin", json={"person_id": "u12", "hide": []}).status_code == 200
     assert client.get("/api/fact/" + fid + "/people").status_code == 403
+
+
+def test_reoptin_without_cookie_keeps_hidden_edge(db_app):
+    client = db_app
+    assert client.post("/api/optin", json={"person_id": "u1", "hide": ["school:uc-berkeley"]}).status_code == 200
+    client.cookies.clear()
+    assert client.post("/api/optin", json={"person_id": "u1", "hide": []}).status_code == 200
+    assert client.get("/api/fact/school_company:uc-berkeley>stripe").status_code == 404
+    assert "school:uc-berkeley" in json.loads(server.OPTINS.read_text())["u1"]["hidden"]

@@ -75,14 +75,14 @@ def test_sjsu_self_pair_cert_article_and_rotation_caps():
     org_rows = [(f"org-{i}", "MEMBER_OF", "GitHubOrg", "foundation", "The Foundation", False, False) for i in range(3)]
     assert fact_catalog(org_rows)["gh_org:foundation"]["line"] == "people here are members of the Foundation GitHub org"
     fake = {}
-    for kind, cap in (("cert", 12), ("cert_issuer", 10), ("hashtag", 15), ("repo", 20)):
+    for kind, cap in (("cert", 3), ("cert_issuer", 3), ("hashtag", 20), ("repo", 20)):
         for i in range(cap + 2):
             fid = f"{kind}:{i:02}"
             fake[fid] = {"id": fid, "kind": kind, "n": 3, "eligible": True}
     selected = rotation(fake)
-    for kind, cap in (("cert", 12), ("cert_issuer", 10), ("hashtag", 15), ("repo", 20)):
+    for kind, cap in (("cert", 3), ("cert_issuer", 3), ("hashtag", 20), ("repo", 20)):
         assert sum(f["kind"] == kind for f in selected) == cap
-    assert [f["kind"] for f in selected[:4]] == ["repo", "hashtag", "cert_issuer", "cert"]
+    assert {f["kind"] for f in selected[:4]} == {"repo", "hashtag", "cert_issuer", "cert"}
 
 
 def test_new_normalization_and_path_hide():
@@ -107,13 +107,13 @@ def test_stats_casts_all_counts(monkeypatch):
             self.result_set = rows
     class Graph:
         def ro_query(self, query, params=None):
-            if "RETURN count(p), sum" in query:
-                return Result([(6.0, 5.0, 2.0, 4.0)])
-            if "RETURN count(DISTINCT x)" in query:
-                return Result([(3.0,)])
-            return Result([("Acme", 3.0)])
+            assert "RETURN count(p), sum" in query
+            return Result([(6.0, 5.0, 2.0, 4.0)])
+    catalog = fact_catalog([(f"u{i}", "WORKED_AT", "Company", "acme", "Acme", False, False) for i in range(3)])
     monkeypatch.setattr(server, "graph", lambda: Graph())
+    monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     result = server.stats()
+    assert result["top_companies"] == [{"name": "Acme", "count": 3}]
     assert result["github_matched"] == 4
     assert all(type(value) is int for key, value in result.items() if key not in {"top_schools", "top_companies"})
     assert all(type(item["count"]) is int for key in ("top_schools", "top_companies") for item in result[key])
