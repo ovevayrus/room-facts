@@ -126,10 +126,10 @@ Keep tokens in `data/optins.json` as a SHA-256 hash so restarts don't log people
 1. `/m?f=<id>` shows the fact big and its path as chips (`You → STUDIED_AT → UC Berkeley ← 3 others`). Without `f`, show a generic intro.
 2. "Is this you?" leads to a name search box with debounced `/api/people/search` and avatar rows.
 3. Pick a person to see a confirm card (avatar, name, `linkedin.com/in/<slug>`) with "Yes, that's me" and "Not me".
-4. Confirmation calls `POST /api/review-session`; "Choose what counts" lists its full fact response as checkboxes. Hidden and pending facts start unchecked. Previously hidden facts are locked unless the existing owner cookie is present. "Share selected facts and find people" sends explicit `show` and `hide` lists to `/api/optin`. Expired reviews return to profile confirmation.
+4. Confirmation calls `POST /api/review-session`; "Choose what counts" lists its full fact response as checkboxes inside a collapsed "Review your facts" panel. Available facts default to checked; hidden and pending facts start unchecked. Previously hidden facts are locked unless the existing owner cookie is present. "Share selected facts and find people" sends explicit `show` and `hide` lists to `/api/optin`. Expired reviews return to profile confirmation.
 5. After `POST /api/optin`, show the scanned fact's count and how many of its holders opted in, then the people from `/api/connections` (name, LinkedIn link, shared lines, the first one with its path as chips), refreshed every 15 s. Add a "Leave Room Facts" button that calls `/api/optout`.
 6. Every scan offers the name and fact chooser, including on a phone with an existing opt-in cookie. "See your people" is a shortcut for an existing session.
-7. Step 5 also shows "Review your facts": the full private list with a checkbox each (pending and hidden unchecked) and "Save my facts", which calls `POST /api/me/facts`.
+7. Step 5 places a collapsed "Review your facts" panel above the overlaps: the full private list with a checkbox each (pending and hidden unchecked) and "Save my facts", which calls `POST /api/me/facts` and refreshes the overlaps.
 
 ## Verification
 

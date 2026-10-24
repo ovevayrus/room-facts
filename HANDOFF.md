@@ -63,6 +63,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 7. **Hosting is the owner's laptop plus ngrok** (decided Oct 24, about 12:10; at most ~50 opt-ins expected). FalkorDB runs in Docker, `server.py` on :8000, and ngrok exposes it. Don't move to hosted infrastructure unless asked.
 8. **After opt-in, people see overlap cards** (decided Oct 24, about 12:10): every other *opted-in* person who shares a non-hidden fact with them, with name, LinkedIn and the shared facts. It's mutual opt-in only. This is being implemented as `/api/connections` on `feat/opt-in-connect` (see Next steps 2).
 9. **Choose facts on the first scan** (owner decision, Oct 24). Confirming a profile opens a restricted, ten-minute review session with that person's full fact list. It does not join the room or reveal other people. The final button shares only checked facts, then loads connections. Facts added after that review remain pending. Previously hidden facts stay hidden without the existing owner's cookie; existing devices keep their sessions. This supersedes the local experiment that approved every fact at opt-in.
+10. **Fact review starts collapsed** (owner decision, Oct 24). The first-scan checklist is in a collapsed "Review your facts" panel, with all available facts checked by default. On the results page, the same collapsed panel sits above the overlaps. People can expand it and change their choices; saved hides and pending facts retain their existing state.
 
 ## Status (update this; last updated Oct 24, about 13:50)
 
