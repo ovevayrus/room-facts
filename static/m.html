@@ -29,7 +29,7 @@
     {fact_id:"company:acme",kind:"company",line_you:"You have worked at Acme",n_if_eligible:3,hidden:false},
     {fact_id:null,kind:"city",line_you:"You live in Oakland",n_if_eligible:null,hidden:false}
   ];
-  let stage = "intro", fact = null, person = null, personFacts = [], searchTimer = 0, searchSeq = 0;
+  let stage = "intro", fact = null, person = null, optedIn = null, personFacts = [], searchTimer = 0, searchSeq = 0;
   let mockOpted = false, mockHidden = [];
   const app = $("#app");
   const error = message => { const el = $("#error"); if (el) el.textContent = message; };
@@ -57,7 +57,7 @@
   function leave() {
     return runAction($("#leave"), "Leaving…", async () => {
       await api("/api/optout", {method:"POST"});
-      person = null; personFacts = []; intro();
+      person = null; optedIn = null; personFacts = []; intro();
     }, "Could not leave Room Facts. Please try again.");
   }
   async function api(path, options = {}) {
@@ -102,8 +102,10 @@
     stage = "intro";
     app.innerHTML = heading("01 / Room Facts", "What do you share?", "Find out what you have in common with people here, and meet the ones who opted in.") +
       (fact ? `<p class="step" style="margin:0 0 8px">On the screen you scanned</p><div class="card hero"><span class="number">${esc(fact.n)}</span><div class="line">${esc(fact.line)}</div></div>` : `<div class="card hero"><h2>Real people. Shared stories.</h2><p>Names stay hidden until you opt in.</p></div>`) +
-      `<button class="button" id="start">Find out what you share</button><p class="note">Your name is shown only to people who also opt in and share a fact with you.</p><p class="error" id="error" role="alert"></p>`;
+      `<button class="button" id="start">Find out what you share</button>${optedIn ? `<button class="button secondary" id="mine">See your people</button>` : ""}<p class="note">Your name is shown only to people who also opt in and share a fact with you.</p><p class="error" id="error" role="alert"></p>`;
     $("#start").onclick = search;
+    // Already opted in: scanning again still offers opt-in, with a shortcut back to your people.
+    if (optedIn) $("#mine").onclick = () => { person = optedIn; void results(); };
   }
   function search() {
     stage = "search";
@@ -164,6 +166,7 @@
     const hide = personFacts.filter((f,i) => f.fact_id && !app.querySelector(`input[data-index="${i}"]`).checked).map(f => f.fact_id);
     return runAction($("#optin"), "Joining…", async () => {
       await api("/api/optin", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({person_id:person.id,hide})});
+      optedIn = person;
       void results();
     }, "Could not opt in. Please try again.");
   }
@@ -194,7 +197,7 @@
       error("");
     } catch (e) {
       if (!matches.isConnected || stage !== "results") return;
-      if (e.status === 401) { person = null; intro(); return; }
+      if (e.status === 401) { person = null; optedIn = null; intro(); return; }
       matches.innerHTML = `<p class="muted">Your people could not load right now.</p><button class="button" id="retry-people">Try again</button>`;
       $("#retry-people").onclick = loadConnections;
       error("Could not load people right now. Retrying…");
@@ -252,9 +255,8 @@
       scannedId ? api(`/api/fact/${encodeURIComponent(scannedId)}`).catch(() => null) : Promise.resolve(null),
       api("/api/me").catch(() => null)
     ]);
-    fact = scanned; person = me;
-    if (person) await results();
-    else intro();
+    fact = scanned; optedIn = me;
+    intro();
   }
   start();
 })();

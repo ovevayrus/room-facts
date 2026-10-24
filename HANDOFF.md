@@ -65,6 +65,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 
 ## Status (update this; last updated Oct 24, about 13:50)
 
+- **Phone responsiveness (`fix/phone-loading`):** profile, confirmation, opt-in, save and leave buttons show a spinner and disable repeated actions; result loading errors can be retried without repeating opt-in. Fact details and co-holder reads run together. Catalog construction skips disjoint school/company pairs before name normalization, while opt-in validation, co-holder identity reads and mutations keep synchronous fresh reads to handle updates from another process. Read-only comparison on the real graph produced identical catalog/rotation output and reduced catalog CPU time from 1,274 ms to 154 ms (DB/network excluded). Synthetic FalkorDB regression tests cover changes made by another process; delayed/error browser checks pass on the PR page and the live `../roomfacts-connect` page. The live phone source also renders connection cards independently of optional stats/scanned-fact requests.
 - **Data** (local `data/`, never in git): 616 guests; 514 LinkedIn profiles; 493 company and school pages; 358 X profiles; 1,277 LinkedIn posts (2026); 208 Instagram profiles; 220 Crunchbase records (only website-verified matches are used); 174 GitHub accounts. The Bright Data credit is mostly used.
 - **The graph** builds from every source. On the PR #4 branch there are 185 facts in rotation with mixed sizes (99 small, 57 medium, 29 large). For example: 18 studied at UC Berkeley, 10 work at Sequoia-backed companies, 17 at a stealth startup, 24 posted #sftechweek. Country-level facts are out of the rotation, at the owner's request.
 - **Merged to `main`:** #1 (CI `pytest.ini`), #3 (Instagram, Crunchbase investors and funding stage, country names), #4 (rotation variety, per DATA_NOTES_3.md, plus the opt-in privacy fixes below).
@@ -82,6 +83,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 
 ## Next steps (pick in order)
 
+0. **Phone responsiveness:** review and merge `fix/phone-loading` after CI/Qodo. Its loading and catalog changes have also been applied to the local `../roomfacts-connect` source; keep them when that branch is finalized.
 1. **Get PR #4 green:** check that CI passes and that Qodo marks its 3 findings resolved. Fix anything new. Then the owner merges #3, then #4 (retarget #4 to `main` after #3 merges). On the laptop afterwards: `python build_graph.py` and `python facts.py --preview 40` to eyeball the rotation.
 2. **Overlap cards (decision 8) are done on `feat/opt-in-connect`** (worktree `../roomfacts-connect`, rebased onto `main` after #3 and #4, with a PR open). It has:
    - `/api/connections`: every other opted-in person you share a visible fact with, refreshed every 15 s. It counts a shared fact only when both people are in the catalog's `fact["holders"]`, so hidden, hidden-combo and pending facts never show.

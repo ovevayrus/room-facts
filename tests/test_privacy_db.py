@@ -149,3 +149,18 @@ def test_fuzzy_search_is_rate_limited_per_client(db_app, monkeypatch):
     assert codes[:12] == [200] * 12 and codes[12] == 429
     other = client.get("/api/people/search", params={"q": "name99", "fuzzy": 1}, headers={"X-Forwarded-For": "203.0.113.9"})
     assert other.status_code == 200
+
+
+def test_connections_see_hides_written_by_another_process(db_app):
+    client = db_app
+    opt_in_and_review(client, "u2")
+    opt_in_and_review(client, "u1")
+    assert "Stripe" in json.dumps(client.get("/api/connections").json())
+    # Another server process hides Stripe for u2: it edits the graph and optins.json, not this cache.
+    saved = json.loads(server.OPTINS.read_text())
+    stripe = {f["id"] for f in server.snapshot()["catalog"].values() if "u2" in f["all_holders"] and "stripe" in f["id"]}
+    saved["u2"]["hidden"] = sorted(set(saved["u2"].get("hidden", [])) | stripe)
+    for fid in stripe:
+        build_graph.set_hidden(build_graph.graph_client(), "u2", fid)
+    server.OPTINS.write_text(json.dumps(saved))
+    assert "Stripe" not in json.dumps(client.get("/api/connections").json())

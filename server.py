@@ -36,11 +36,19 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def optins_stamp():
+    try:
+        return OPTINS.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
 def snapshot(force=False):
     with _lock:
         if force or time.monotonic() - _cache["at"] >= 5:
+            stamp = optins_stamp()
             catalog = fact_catalog(graph_rows(graph()), hidden_combos=hidden_combos_from_optins(load_optins()))
-            _cache.update(at=time.monotonic(), catalog=catalog, facts=[public_fact(f) for f in rotation(catalog)], generated_at=now_iso())
+            _cache.update(at=time.monotonic(), catalog=catalog, facts=[public_fact(f) for f in rotation(catalog)], generated_at=now_iso(), optins=stamp)
         return _cache
 
 
@@ -323,7 +331,11 @@ def connections(request: Request):
     person = auth_person(request)
     if not person:
         raise HTTPException(401, "Not opted in")
-    people = assist.connections(graph(), person["id"], snapshot()["catalog"])
+    # Names are disclosed here, so read visibility consistently: hold the lock fact changes take (they
+    # refresh the cache before releasing it), and rebuild if optins.json changed in another process.
+    with _lock:
+        catalog = snapshot(force=_cache.get("optins") != optins_stamp())["catalog"]
+        people = assist.connections(graph(), person["id"], catalog)
     return {"people": [{key: p[key] for key in ("name", "avatar", "linkedin", "shared", "more")} for p in people]}
 
 
