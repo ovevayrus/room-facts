@@ -17,6 +17,8 @@ SEPARATE_HIDDEN_COMBOS = {*COMBO_KINDS, "school_company", "company_company"}
 ORDER = ["school_industry", "school_stage", "school_investor", "repo_lang", "repo", "investor", "school", "language", "industry", "city", "gh_org", "hashtag", "ig_hashtag", "company", "tagged_company", "prog_lang", "school_company", "company_company", "volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year", "cert", "cert_issuer", "cause", "company_country", "x_verified", "study_country", "country"]
 PATH_KINDS = {"cert_issuer", *ORG_PATHS, "school_company", "company_company", *COMBO_KINDS}
 COUNTRY_KINDS = {"country", "company_country", "study_country"}
+# Too generic for a person's own fact list. Never shown there, so they stay pending (uncounted) once someone opts in.
+UNLISTED_KINDS = {"cert", "cert_issuer"}
 WIDE_KINDS = {"school", "company", "repo", "investor", "tagged_company", "hashtag", "prog_lang", "industry", "city", "language", *COMBO_KINDS}
 TIER_1 = {"school", "repo", "investor", "company", "tagged_company", "hashtag", "prog_lang", "industry", "city", "language", "ig_hashtag", "gh_org", "school_company", "company_company", *COMBO_KINDS}
 TIER_2 = {"volunteer", "funding_stage", "org_kind", "x_since", "gh_since", "founded_year"}
@@ -231,7 +233,9 @@ def fact_catalog(rows, min_n=None, max_n=None, hidden_combos=None):
         for eid, holders in by_kind[kind].items():
             sample = next(iter(holders.values()))
             fid = f"{kind}:{eid}"
-            visible = {p: value for p, value in holders.items() if not value["hidden"] and fid not in hidden_combos.get(p, ())}
+            # Opted-in people never review unlisted kinds, so they never count toward them, whatever their saved state says.
+            visible = {p: value for p, value in holders.items() if not value["hidden"] and fid not in hidden_combos.get(p, ())
+                       and not (kind in UNLISTED_KINDS and value["opted"])}
             add(kind, [eid], [sample], visible, holders, set(holders) - set(visible))
     for kind in COMBO_PATHS:
         # Keep hidden, sub-threshold combos for personal review; add() enforces the public floor.

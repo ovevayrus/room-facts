@@ -145,7 +145,8 @@ def test_rotation_caps_leave_catalog_facts_available(monkeypatch):
     monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     monkeypatch.setattr(server, "person_row", lambda pid: {"id": pid})
     assert server.fact_detail(left_out["id"])["id"] == left_out["id"]
-    assert any(f["fact_id"] == left_out["id"] for f in server.person_facts("cert-8-0", Request({"type": "http", "headers": []})))
+    # Certifications stay on the screens but never appear in a person's own fact list.
+    assert not any(f["fact_id"] == left_out["id"] for f in server.person_facts("cert-8-0", Request({"type": "http", "headers": []})))
     monkeypatch.setattr(server, "_events", [{"at": "2026-10-24T00:00:00+00:00", "text": "A capped fact", "fact_id": left_out["id"]}])
     assert server.events() == [{"at": "2026-10-24T00:00:00+00:00", "text": "A capped fact"}]
 

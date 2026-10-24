@@ -15,7 +15,7 @@ def row(pid, rel, label, eid, name, *, hidden=False, current=False):
 def test_person_facts_public_subset_and_owner_cookie(monkeypatch):
     rows = [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
     rows += [row(pid, "WORKED_AT", "Company", "co", "Example Co", hidden=pid == "p0") for pid in ("p0", "p3", "p4", "p5")]
-    rows += [row(pid, "CERTIFIED", "Cert", "rare", "Rare Cert") for pid in ("p0", "p6")]
+    rows += [row(pid, "SPEAKS", "Language", "rare", "Rare Lang") for pid in ("p0", "p6")]
     catalog = fact_catalog(rows)
     monkeypatch.setattr(server, "snapshot", lambda force=False: {"catalog": catalog})
     monkeypatch.setattr(server, "person_row", lambda pid: {"id": pid, "opted_in": True})
@@ -41,7 +41,7 @@ def test_person_facts_public_subset_and_owner_cookie(monkeypatch):
 
 
 def test_optin_accepts_hides_not_shown_before_optin(monkeypatch):
-    catalog = fact_catalog([row(pid, "CERTIFIED", "Cert", "rare", "Rare Cert") for pid in ("p0", "p1")])
+    catalog = fact_catalog([row(pid, "SPEAKS", "Language", "rare", "Rare Lang") for pid in ("p0", "p1")])
     saved = {}
 
     class Graph:
@@ -56,9 +56,9 @@ def test_optin_accepts_hides_not_shown_before_optin(monkeypatch):
     monkeypatch.setattr(server, "_events", [])
     client = TestClient(server.app)
     assert client.get("/api/person/p0/facts").json() == []
-    response = client.post("/api/optin", json={"person_id": "p0", "hide": ["cert:rare"]})
+    response = client.post("/api/optin", json={"person_id": "p0", "hide": ["language:rare"]})
     assert response.status_code == 200
-    assert saved["p0"]["hidden"] == ["cert:rare"]
+    assert saved["p0"]["hidden"] == ["language:rare"]
 
 
 def test_specific_school_beats_duplicate_study_country():
@@ -155,43 +155,43 @@ def test_reoptin_without_owner_cookie_keeps_saved_hides(monkeypatch):
 
 
 def test_unlisted_facts_stay_pending_until_owner_approves(monkeypatch):
-    rows = [row(pid, "CERTIFIED", "Cert", "rare", "Rare Cert") for pid in ("p0", "p1")]
+    rows = [row(pid, "SPEAKS", "Language", "rare", "Rare Lang") for pid in ("p0", "p1")]
     rows += [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
     saved = {}
     client = optin_app(monkeypatch, rows, saved)
     assert [f["fact_id"] for f in client.get("/api/person/p0/facts").json()] == ["school:uni"]
-    assert client.post("/api/me/facts", json={"show": ["cert:rare"]}).status_code == 401
+    assert client.post("/api/me/facts", json={"show": ["language:rare"]}).status_code == 401
     assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
-    assert saved["p0"]["pending"] == ["cert:rare"]
+    assert saved["p0"]["pending"] == ["language:rare"]
 
-    rows += [row("p3", "CERTIFIED", "Cert", "rare", "Rare Cert")]
-    rare = server.snapshot(force=True)["catalog"]["cert:rare"]
+    rows += [row("p3", "SPEAKS", "Language", "rare", "Rare Lang")]
+    rare = server.snapshot(force=True)["catalog"]["language:rare"]
     assert rare["n"] == 2 and "p0" not in rare["holders"] and not rare["eligible"]
     private = {f["fact_id"]: f for f in client.get("/api/person/p0/facts").json()}
-    assert private["cert:rare"]["pending"] and not private["cert:rare"]["hidden"]
+    assert private["language:rare"]["pending"] and not private["language:rare"]["hidden"]
     assert not private["school:uni"]["pending"]
 
-    assert client.post("/api/me/facts", json={"show": ["cert:rare"], "hide": ["cert:rare"]}).status_code == 422
+    assert client.post("/api/me/facts", json={"show": ["language:rare"], "hide": ["language:rare"]}).status_code == 422
     assert client.post("/api/me/facts", json={"show": ["company:nope"]}).status_code == 422
-    reviewed = {f["fact_id"]: f for f in client.post("/api/me/facts", json={"show": ["cert:rare"], "hide": ["school:uni"]}).json()}
+    reviewed = {f["fact_id"]: f for f in client.post("/api/me/facts", json={"show": ["language:rare"], "hide": ["school:uni"]}).json()}
     assert saved["p0"]["pending"] == [] and saved["p0"]["hidden"] == ["school:uni"]
-    assert not reviewed["cert:rare"]["pending"]
-    rare = server.snapshot(force=True)["catalog"]["cert:rare"]
+    assert not reviewed["language:rare"]["pending"]
+    rare = server.snapshot(force=True)["catalog"]["language:rare"]
     assert rare["n"] == 3 and rare["eligible"] and "p0" in rare["holders"]
 
 
 def test_cookieless_reoptin_keeps_approvals(monkeypatch):
-    rows = [row(pid, "CERTIFIED", "Cert", "rare", "Rare Cert") for pid in ("p0", "p1")]
+    rows = [row(pid, "SPEAKS", "Language", "rare", "Rare Lang") for pid in ("p0", "p1")]
     saved = {}
     client = optin_app(monkeypatch, rows, saved)
     assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
-    assert saved["p0"]["pending"] == ["cert:rare"]
-    assert client.post("/api/me/facts", json={"show": ["cert:rare"]}).status_code == 200
-    assert saved["p0"]["approved"] == ["cert:rare"]
+    assert saved["p0"]["pending"] == ["language:rare"]
+    assert client.post("/api/me/facts", json={"show": ["language:rare"]}).status_code == 200
+    assert saved["p0"]["approved"] == ["language:rare"]
     client.cookies.clear()
     assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
-    assert saved["p0"]["pending"] == [] and saved["p0"]["approved"] == ["cert:rare"]
-    assert "p0" in server.snapshot(force=True)["catalog"]["cert:rare"]["holders"]
+    assert saved["p0"]["pending"] == [] and saved["p0"]["approved"] == ["language:rare"]
+    assert "p0" in server.snapshot(force=True)["catalog"]["language:rare"]["holders"]
 
 
 def test_stats_exclude_pending_holders(monkeypatch):
@@ -212,3 +212,45 @@ def test_stats_exclude_pending_holders(monkeypatch):
     stats = server.stats()
     assert stats["top_schools"] == []
     assert stats["top_companies"] == [{"name": "Example Co", "count": 3}]
+
+
+@pytest.mark.parametrize("owner", [False, True])
+def test_certifications_never_listed_and_stay_pending(monkeypatch, owner):
+    rows = [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
+    rows += [row(pid, "CERTIFIED", "Cert", "aws", "AWS Cloud Practitioner") for pid in ("p0", "p1", "p3")]
+    rows += [row(pid, "ISSUED_BY", "Issuer", "amazon", "Amazon Web Services") for pid in ("p0", "p2", "p3", "p4")]
+    token = hashlib.sha256(b"own-token").hexdigest()
+    saved = {"p0": {"hidden": [], "pending": [], "tokens": [token]}} if owner else {}
+    client = optin_app(monkeypatch, rows, saved)
+    if owner:
+        client.cookies.set("rf_token", "own-token")
+    catalog = server.snapshot(force=True)["catalog"]
+    assert catalog["cert:aws"]["eligible"] and catalog["cert_issuer:amazon"]["eligible"]
+    assert [f["fact_id"] for f in client.get("/api/person/p0/facts").json()] == ["school:uni"]
+    response = client.post("/api/optin", json={"person_id": "p0", "hide": []})
+    assert response.status_code == 200
+    assert saved["p0"]["pending"] == ["cert:aws", "cert_issuer:amazon"] and saved["p0"]["approved"] == ["school:uni"]
+    catalog = server.snapshot(force=True)["catalog"]
+    assert "p0" not in catalog["cert:aws"]["holders"] and "p0" in catalog["school:uni"]["holders"]
+    client.cookies.clear()
+    client.cookies.set("rf_token", response.cookies["rf_token"])
+    private = client.get("/api/person/p0/facts").json()
+    assert [(f["fact_id"], f["pending"]) for f in private] == [("school:uni", False)]
+
+
+def test_certifications_cannot_be_approved_or_kept_approved(monkeypatch):
+    rows = [row(pid, "STUDIED_AT", "School", "uni", "Example U") for pid in ("p0", "p1", "p2")]
+    rows += [row(pid, "CERTIFIED", "Cert", "aws", "AWS Cloud Practitioner") for pid in ("p0", "p1", "p3")]
+    rows = [(*r[:6], r[0] == "p0", *r[7:]) for r in rows]  # p0 opted in before this change
+    token = hashlib.sha256(b"own-token").hexdigest()
+    saved = {"p0": {"hidden": [], "approved": ["cert:aws", "school:uni"], "tokens": [token]}}
+    client = optin_app(monkeypatch, rows, saved)
+    catalog = server.snapshot(force=True)["catalog"]
+    assert "p0" not in catalog["cert:aws"]["holders"] and catalog["cert:aws"]["n"] == 2 and not catalog["cert:aws"]["eligible"]
+    assert "p0" in catalog["school:uni"]["holders"]
+
+    client.cookies.set("rf_token", "own-token")
+    assert client.post("/api/me/facts", json={"show": ["cert:aws"]}).status_code == 422
+    client.cookies.clear()
+    assert client.post("/api/optin", json={"person_id": "p0", "hide": []}).status_code == 200
+    assert saved["p0"]["approved"] == ["school:uni"]

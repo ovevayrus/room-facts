@@ -63,14 +63,14 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 7. **Hosting is the owner's laptop plus ngrok** (decided Oct 24, about 12:10; at most ~50 opt-ins expected). FalkorDB runs in Docker, `server.py` on :8000, and ngrok exposes it. Don't move to hosted infrastructure unless asked.
 8. **After opt-in, people see overlap cards** (decided Oct 24, about 12:10): every other *opted-in* person who shares a non-hidden fact with them, with name, LinkedIn and the shared facts. It's mutual opt-in only. This is being implemented as `/api/connections` on `feat/opt-in-connect` (see Next steps 2).
 
-## Status (update this; last updated Oct 24, about 13:30)
+## Status (update this; last updated Oct 24, about 14:00)
 
 - **Data** (local `data/`, never in git): 616 guests; 514 LinkedIn profiles; 493 company and school pages; 358 X profiles; 1,277 LinkedIn posts (2026); 208 Instagram profiles; 220 Crunchbase records (only website-verified matches are used); 174 GitHub accounts. The Bright Data credit is mostly used.
 - **The graph** builds from every source. On the PR #4 branch there are 185 facts in rotation with mixed sizes (99 small, 57 medium, 29 large). For example: 18 studied at UC Berkeley, 10 work at Sequoia-backed companies, 17 at a stealth startup, 24 posted #sftechweek. Country-level facts are out of the rotation, at the owner's request.
-- **Merged to `main`:** #1 (CI `pytest.ini`).
+- **Merged to `main`:** #1 (CI `pytest.ini`), #3 (Instagram, Crunchbase investors and funding stage, country names), #4 (rotation variety per DATA_NOTES_3.md, plus the opt-in privacy fixes below).
 - **Open PRs:**
-  - **#3** Instagram, Crunchbase investors and funding stage, plus country names. CI is green and Qodo's 6 findings are resolved. **Ready to merge.**
-  - **#4** (stacked on #3) rotation variety (DATA_NOTES_3.md): per-kind max group sizes, the S/L/M count spread, an interest score, and the combo kinds school_industry, school_stage, school_investor and repo_lang. Qodo flagged 3 bugs, then 2 security findings, then 2 more on the next re-review (below). All 7 are fixed (63 tests pass locally with FalkorDB). Waiting on CI and Qodo's re-review.
+  - **#6** removes certifications from the phone fact lists (below).
+  - **#5** `add_guest.py` adds people who aren't on the Luma list. Qodo has open findings (a full `enrich_linkedin.py` run overwrites added profiles, and company matching is by substring). The owner is adding guests locally instead.
   - **#2** (opened by the owner) drops the stage-demo script from the README. It touches README/HANDOFF/SPEC and may conflict with these docs.
 - **Qodo's PR #4 findings, and the fixes:**
   1. `/api/person/{id}/facts` leaked hidden and sub-threshold facts unauthenticated. Now, without the person's own `rf_token`, it returns only their public (n ≥ 3, not hidden) facts.
@@ -80,12 +80,13 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
   5. Facts not shown in the public checklist (sub-threshold ones) counted after opt-in without review. They're now saved as `pending` in optins.json and suppressed per fact (not by hiding edges, so path facts like industry keep their counts). The owner approves or hides them via `POST /api/me/facts` from a "Review your facts" card on m.html.
   6. A cookie-less re-opt-in made already-approved facts pending again. optins.json now keeps an `approved` list too.
   7. `/api/stats` counted schools and companies from raw edges, which included pending holders. It now counts from the catalog.
-- **Tested end to end in a browser earlier:** the live screen with a QR per fact, and phone search → confirm → choose facts → opt in → see co-holders → opt out.
+- **Certifications are off the phone fact lists** (owner request: too generic). The checklist and the review card skip `cert` and `cert_issuer`. Because they're never shown, they never count for anyone who has opted in. `fact_catalog` enforces that from `p.opted_in`, so older approvals in optins.json don't matter, and `POST /api/me/facts` rejects them. They still rotate on the screens, counting only guests who haven't opted in.
+- **Tested end to end in a browser:** the live screen with a QR per fact, and phone search → confirm → choose facts → opt in → see co-holders → opt out. Merged `main` was re-checked with the synthetic fixtures: a decoded screen QR, phone opt-in, the review card, and the screen's opted-in count and ticker event.
 - **Local-only pieces** (not available to a cloud session): FalkorDB in Docker, the `data/` folder, the server (`python server.py` with `PUBLIC_BASE_URL` set to the owner's ngrok domain), the ngrok tunnel, the Codex plugin, and Bright Data scraping.
 
 ## Next steps (pick in order)
 
-1. **Get PR #4 green:** check that CI passes and that Qodo marks its 3 findings resolved. Fix anything new. Then the owner merges #3, then #4 (retarget #4 to `main` after #3 merges). On the laptop afterwards: `python build_graph.py` and `python facts.py --preview 40` to eyeball the rotation.
+1. **Run merged `main` on the laptop:** `git pull`, `python build_graph.py`, restart `server.py` with `PUBLIC_BASE_URL`, then `python facts.py --preview 40` to eyeball the rotation and scan a QR with a phone. `feat/opt-in-connect` still has to merge `main` (see 2).
 2. **Overlap cards (decision 8) are being built in a separate session** on branch `feat/opt-in-connect` (the worktree `../roomfacts-connect`). It adds `/api/connections` (every other opted-in person you share a visible fact with, refreshed every 15 s) and an OpenAI-assisted name lookup at opt-in (`assist.py`, key in `.env`). That session also runs the live laptop server behind ngrok. Don't build a second version. It branched from PR #3 before #4, so it will need to merge #4's `server.py` / `facts.py` / `m.html` changes when it opens its PR: the person-facts privacy rule, saved hides kept on a cookie-less re-opt-in, `pending` facts and `POST /api/me/facts`, and the rotation. `/api/connections` must use `fact["holders"]` (which already excludes hidden and pending people), never `all_holders`. Merge order: #3, then #4, then opt-in-connect.
 3. **Demo prep:** rehearse the 90-second script in README.md. Have one audience member who holds a fact scan live (the owner's own facts are all under 3 holders). Open FalkorDB Browser with `demo_queries.cypher`.
 3. **Privacy hardening before going public at the venue** (known gaps):
