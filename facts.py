@@ -75,7 +75,8 @@ def graph_rows(graph):
     rows = graph.ro_query(query).result_set + graph.ro_query(issuer_query).result_set
     for kind, (source_label, rel, target_label, _) in ORG_PATHS.items():
         first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-        path_query = f"MATCH (p:Person)-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label}) RETURN p.id, '{rel}', '{target_label}', x.id, x.name, r.hidden, p.opted_in, null"
+        current_only = " WHERE r.current=true" if kind in {"investor", "funding_stage"} else ""
+        path_query = f"MATCH (p:Person)-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label}){current_only} RETURN p.id, '{rel}', '{target_label}', x.id, x.name, r.hidden, p.opted_in, r.current"
         rows += graph.ro_query(path_query).result_set
     return rows
 
@@ -92,7 +93,7 @@ def fact_catalog(rows, min_n=None, max_n=None):
                 by_kind[kind][eid][pid] = {"name": name, "hidden": bool(hidden), "opted": bool(opted), "label": label, "current": current}
                 break
         path_kind = "cert_issuer" if rel == "ISSUED_BY" and label == "Issuer" else next((k for k, v in ORG_PATHS.items() if rel == v[1] and label == v[2]), None)
-        if path_kind:
+        if path_kind and (path_kind not in {"investor", "funding_stage"} or current):
             old = by_kind[path_kind][eid].get(pid)
             by_kind[path_kind][eid][pid] = {"name": name, "hidden": bool(hidden) and (old["hidden"] if old else True), "opted": bool(opted), "label": label, "current": False}
 
@@ -111,7 +112,8 @@ def fact_catalog(rows, min_n=None, max_n=None):
         elif kind in ORG_PATHS:
             source_label, rel, target_label, _ = ORG_PATHS[kind]
             first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-            pattern = f"MATCH (p:Person)-[r:{first}]->(s:{source_label})-[:{rel}]->(x:{target_label} {{id:$id}}) WHERE r.hidden=false"
+            current_only = " AND r.current=true" if kind in {"investor", "funding_stage"} else ""
+            pattern = f"MATCH (p:Person)-[r:{first}]->(s:{source_label})-[:{rel}]->(x:{target_label} {{id:$id}}) WHERE r.hidden=false{current_only}"
         elif kind in KINDS:
             rel, label = KINDS[kind]
             pattern = f"MATCH (p:Person)-[r:{rel}]->(x:{label} {{id:$id}}) WHERE r.hidden=false"

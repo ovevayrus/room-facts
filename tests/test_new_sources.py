@@ -42,7 +42,7 @@ def test_all_new_kinds_catalog_paths_and_hiding():
     direct = {kind: KINDS[kind] for kind in ("x_since", "x_verified", "hashtag", "tagged_company", "repo", "gh_org", "prog_lang", "gh_since")}
     for kind, (rel, label) in {**paths, **direct}.items():
         eid = "pre2009" if kind == "x_since" else "pre2012" if kind == "gh_since" else "sample"
-        rows = [(f"{kind}-{i}", rel, label, eid, "Sample", False, False, False) for i in range(3)]
+        rows = [(f"{kind}-{i}", rel, label, eid, "Sample", False, False, kind in {"investor", "funding_stage"}) for i in range(3)]
         fact = fact_catalog(rows)[f"{kind}:{eid}"]
         assert fact["n"] == 3 and fact["eligible"] and fact["src"] == SRC[kind]
         assert fact["line"] and fact["line_you"] and fact["line_event"]
@@ -54,7 +54,7 @@ def test_all_new_kinds_catalog_paths_and_hiding():
         if kind in paths:
             assert len(path) == 6 and ("WORKED_AT" in path or "STUDIED_AT" in path)
             assert fact["pattern"].count("->") == 2
-        rows[0] = (rows[0][0], rel, label, eid, "Sample", True, False, False)
+        rows[0] = (rows[0][0], rel, label, eid, "Sample", True, False, kind in {"investor", "funding_stage"})
         assert fact_catalog(rows)[f"{kind}:{eid}"]["n"] == 2
 
 

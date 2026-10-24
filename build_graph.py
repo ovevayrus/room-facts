@@ -291,7 +291,8 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None,
             for tag in hashtags(item.get("post_hashtags"), GENERIC_IG_HASHTAGS):
                 add("ig_hashtag", pid, tag)
 
-    for item in crunchbase or []:
+    selected_crunchbase = {}
+    for index, item in enumerate(crunchbase or []):
         if not isinstance(item, dict) or item.get("error"):
             continue
         discovery = item.get("discovery_input") or {}
@@ -311,29 +312,36 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None,
                        or keyword.get("company") or keyword.get("value"))
         if not isinstance(keyword, str):
             continue
+        cb_host = root_domain(item.get("website"))
+        cb_name = slug(item.get("name"))
         for source_id, org in company_orgs.get(slug(keyword), []):
-            cb_domain = root_domain(item.get("website"))
-            same_site = bool(cb_domain and cb_domain == root_domain(org.get("website_simplified")))
-            same_name = bool(slug(item.get("name")) and slug(item.get("name")) == slug(org.get("name")))
-            if not (same_site or same_name):
+            org_host = root_domain(org.get("website_simplified"))
+            same_host = bool(cb_host and cb_host == org_host)
+            same_name = bool(cb_name and cb_name == slug(org.get("name")))
+            if not same_host and not (same_name and (not cb_host or not org_host)):
                 continue
-            for investor in item.get("investors") or []:
-                if not isinstance(investor, dict):
-                    continue
-                value = investor.get("investor") or investor.get("value") or investor.get("name")
-                if isinstance(value, dict):
-                    value = value.get("value") or value.get("name")
-                if isinstance(value, str) and value.strip():
-                    path("investor", source_id, value)
-            stage = funding_stage(item.get("last_funding_type"))
-            if "last_funding_type" not in item:
-                rounds = item.get("funding_rounds_list") or []
-                if rounds and isinstance(rounds[0], dict):
-                    title = rounds[0].get("title") or ""
-                    if isinstance(title, str):
-                        stage = funding_stage(title.split(" - ", 1)[0])
-            if stage:
-                path("funding_stage", source_id, stage)
+            rank = (same_host, same_name, -index)
+            if source_id not in selected_crunchbase or rank > selected_crunchbase[source_id][0]:
+                selected_crunchbase[source_id] = (rank, item)
+
+    for source_id, (_, item) in selected_crunchbase.items():
+        for investor in item.get("investors") or []:
+            if not isinstance(investor, dict):
+                continue
+            value = investor.get("investor") or investor.get("value") or investor.get("name")
+            if isinstance(value, dict):
+                value = value.get("value") or value.get("name")
+            if isinstance(value, str) and value.strip():
+                path("investor", source_id, value)
+        stage = funding_stage(item.get("last_funding_type"))
+        if "last_funding_type" not in item:
+            rounds = item.get("funding_rounds_list") or []
+            if rounds and isinstance(rounds[0], dict):
+                title = rounds[0].get("title") or ""
+                if isinstance(title, str):
+                    stage = funding_stage(title.split(" - ", 1)[0])
+        if stage:
+            path("funding_stage", source_id, stage)
 
     known_people = {p["id"] for p in people}
     for pid, item in (github or {}).items():
@@ -382,7 +390,8 @@ def set_hidden(graph, pid, fact_id, hidden=True):
     elif kind in ORG_PATHS:
         source_label, rel, target_label, _ = ORG_PATHS[kind]
         first = "WORKED_AT" if source_label == "Company" else "STUDIED_AT"
-        graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label} {{id:$eid}}) SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
+        current_only = " WHERE r.current=true" if kind in {"investor", "funding_stage"} else ""
+        graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{first}]->(:{source_label})-[:{rel}]->(x:{target_label} {{id:$eid}}){current_only} SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
     elif kind in KINDS:
         rel, label = KINDS[kind]
         graph.query(f"MATCH (p:Person {{id:$pid}})-[r:{rel}]->(x:{label} {{id:$eid}}) SET r.hidden=$hidden", {"pid": pid, "eid": ids, "hidden": hidden})
