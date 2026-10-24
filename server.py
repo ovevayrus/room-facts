@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import assist
 from build_graph import OPTINS, graph_client, load_optins, set_hidden
 from facts import eligible_facts, fact_catalog, fact_path, graph_rows, hidden_combos_from_optins, public_fact, rotation
 
@@ -22,6 +23,7 @@ app.mount("/static", StaticFiles(directory=ROOT / "static", check_dir=False), na
 _lock = RLock()
 _cache = {"at": 0.0, "catalog": {}, "facts": [], "generated_at": ""}
 _events = []
+_lookups = {}
 
 
 def graph():
@@ -84,6 +86,11 @@ def screen():
     return FileResponse(ROOT / "static" / "screen.html")
 
 
+@app.get("/monitor")
+def monitor():
+    return FileResponse(ROOT / "static" / "screen.html")
+
+
 @app.get("/m")
 def mobile():
     return FileResponse(ROOT / "static" / "m.html")
@@ -139,10 +146,18 @@ def events(since: str | None = None):
 
 
 @app.get("/api/people/search")
-def people_search(q: str = ""):
+def people_search(q: str = "", fuzzy: bool = False):
     q = q.strip()
     if len(q) < 2:
         return []
+    if fuzzy:
+        if len(q) < 3:
+            return []
+        if q.lower() not in _lookups:
+            _lookups[q.lower()] = assist.lookup(graph(), q)
+            while len(_lookups) > 500:
+                _lookups.pop(next(iter(_lookups)))
+        return [{**row, "suggested": True} for row in _lookups[q.lower()]]
     rows = graph().ro_query("MATCH (p:Person) WHERE toLower(p.name) CONTAINS toLower($q) OR toLower(p.linkedin) CONTAINS toLower($q) RETURN p.id, p.name, p.avatar ORDER BY p.name LIMIT 8", {"q": q}).result_set
     return [{"id": pid, "name": name or "", "avatar": avatar or ""} for pid, name, avatar in rows]
 
@@ -188,7 +203,8 @@ def optin(body: OptInBody, request: Request, response: Response):
     owner = auth_person(request)
     is_owner = bool(owner and owner["id"] == pid)
     with _lock:
-        catalog = snapshot(force=True)["catalog"]
+        # Mutations refresh the cache below; reuse it for this membership check.
+        catalog = snapshot()["catalog"]
         mine = {f["id"] for f in catalog.values() if pid in f["all_holders"]}
         if any(fid not in mine for fid in body.hide):
             raise HTTPException(422, "A hidden fact does not belong to this person")
@@ -277,12 +293,22 @@ def me(request: Request):
     return public_person(person)
 
 
+@app.get("/api/connections")
+def connections(request: Request):
+    person = auth_person(request)
+    if not person:
+        raise HTTPException(401, "Not opted in")
+    people = assist.connections(graph(), person["id"], snapshot()["catalog"])
+    return {"people": [{key: p[key] for key in ("name", "avatar", "linkedin", "shared", "more")} for p in people]}
+
+
 @app.get("/api/fact/{id:path}/people")
 def fact_people(id: str, request: Request):
     person = auth_person(request)
     if not person:
         raise HTTPException(403, "Opt-in required")
-    fact = snapshot(force=True)["catalog"].get(id)
+    # Opt-in and opt-out refresh this catalog before releasing the lock.
+    fact = snapshot()["catalog"].get(id)
     if not fact or not fact["eligible"] or person["id"] not in fact["holders"]:
         raise HTTPException(403, "Fact membership required")
     rows = graph().ro_query("MATCH (p:Person) WHERE p.id IN $ids AND p.opted_in=true RETURN p.id, p.name, p.avatar, p.linkedin ORDER BY p.name", {"ids": list(fact["holders"])}).result_set

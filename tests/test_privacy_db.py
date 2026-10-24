@@ -85,3 +85,53 @@ def test_reoptin_without_cookie_keeps_hidden_edge(db_app):
     assert client.post("/api/optin", json={"person_id": "u1", "hide": []}).status_code == 200
     assert client.get("/api/fact/school_company:uc-berkeley>stripe").status_code == 404
     assert "school:uc-berkeley" in json.loads(server.OPTINS.read_text())["u1"]["hidden"]
+
+
+def opt_in_and_review(client, pid, hide=()):
+    """Opt in, then approve every pending fact as the phone page's "Review your facts" does."""
+    assert client.post("/api/optin", json={"person_id": pid, "hide": list(hide)}).status_code == 200
+    pending = [f["fact_id"] for f in client.get(f"/api/person/{pid}/facts").json() if f.get("pending")]
+    if pending:
+        assert client.post("/api/me/facts", json={"hide": [], "show": pending}).status_code == 200
+
+
+def test_connections_only_opted_in_people_sharing_a_visible_fact(db_app):
+    client = db_app
+    assert client.get("/api/connections").status_code == 401
+    opt_in_and_review(client, "u1")
+    assert client.get("/api/connections").json() == {"people": []}
+    opt_in_and_review(client, "u2")
+    people = client.get("/api/connections").json()["people"]
+    assert [p["name"] for p in people] == ["Ada One"]
+    assert "You've both worked at Stripe" in [s["line"] for s in people[0]["shared"]]
+    assert people[0]["more"] >= 1
+    assert "Ciro Three" not in json.dumps(people)
+    opt_in_and_review(client, "u3")
+    people = client.get("/api/connections").json()["people"]
+    assert [p["name"] for p in people] == ["Ada One", "Bela Two"]
+    assert "Stripe" in json.dumps(people)
+    assert client.post("/api/optin", json={"person_id": "u3", "hide": ["company:stripe"]}).status_code == 200
+    assert "Stripe" not in json.dumps(client.get("/api/connections").json())
+    opt_in_and_review(client, "u12")
+    assert client.get("/api/connections").json() == {"people": []}
+
+
+def test_fuzzy_name_search_without_openai(db_app, monkeypatch):
+    import assist
+    monkeypatch.setattr(assist, "env", lambda name: "")
+    client = db_app
+    rows = client.get("/api/people/search", params={"q": "Bella Twoo", "fuzzy": 1}).json()
+    assert rows and rows[0]["name"] == "Bela Two" and rows[0]["suggested"] is True
+    assert client.get("/api/people/search", params={"q": "zzzzqqq", "fuzzy": 1}).json() == []
+
+
+def test_connections_skip_facts_pending_review(db_app):
+    client = db_app
+    opt_in_and_review(client, "u2")
+    opt_in_and_review(client, "u1")
+    assert "Stripe" in json.dumps(client.get("/api/connections").json())
+    saved = json.loads(server.OPTINS.read_text())
+    saved["u2"]["pending"] = sorted(set(saved["u2"].get("pending", [])) | {"company:stripe"})
+    server.OPTINS.write_text(json.dumps(saved))
+    server._cache["at"] = 0
+    assert "Stripe" not in json.dumps(client.get("/api/connections").json())

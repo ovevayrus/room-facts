@@ -131,6 +131,16 @@ pre .k { color: var(--accent); }
   .layer.enter { animation: none; }
   .tape { animation: none; }
 }
+
+/* Single monitor (/monitor): one screen filling the window. Click it, or press space or an arrow key, for the next fact. */
+body.single { margin: 0; min-height: 100vh; overflow: hidden; display: grid; place-items: center; }
+body.single .head, body.single .controls, body.single .below, body.single .caption { display: none; }
+body.single .wrap { max-width: none; padding: 0; }
+body.single .stage { border: 0; border-radius: 0; background: none; padding: 0; overflow: visible; }
+body.single .face { cursor: pointer; }
+.hint { display: none; margin: 10px 0 0; text-align: center; font-family: var(--f-mono); font-size: .72rem; color: var(--muted); }
+body.single .hint { display: block; }
+.monitor-link { text-decoration: none; }
 </style>
 
 <div class="wrap">
@@ -145,7 +155,7 @@ pre .k { color: var(--accent); }
     <div class="group"><span>Screens</span><div class="seg" id="c-n"><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button></div></div>
     <div class="group"><span>View</span><div class="seg" id="c-view"><button type="button" data-v="flat">Side by side</button><button type="button" data-v="prism">Walk around</button></div></div>
     <div class="group"><span>Viewing distance</span><div class="seg" id="c-dist"><button type="button" data-v="3">3 m</button><button type="button" data-v="6">6 m</button><button type="button" data-v="15">15 m</button></div></div>
-    <div class="group"><span>&nbsp;</span><div style="display:flex;gap:8px"><button class="play" type="button" id="c-play">❚❚ Pause</button><span class="turns" id="turns"><button class="play" type="button" id="turn-l" aria-label="Turn left">◀</button><button class="play" type="button" id="turn-r" aria-label="Turn right">▶</button></span></div></div>
+    <div class="group"><span>&nbsp;</span><div style="display:flex;gap:8px"><button class="play" type="button" id="c-play">❚❚ Pause</button><a class="play monitor-link" href="/monitor">One monitor ↗</a><span class="turns" id="turns"><button class="play" type="button" id="turn-l" aria-label="Turn left">◀</button><button class="play" type="button" id="turn-r" aria-label="Turn right">▶</button></span></div></div>
   </div>
 
   <section class="stage" id="stage" aria-label="Preview of the screens at this location">
@@ -154,6 +164,7 @@ pre .k { color: var(--accent); }
       <div class="prism-shadow"></div>
     </div>
     <p class="caption" id="caption"></p>
+    <p class="hint">Click the screen, or press space, for the next fact.</p>
   </section>
 
   <section class="below">
@@ -256,7 +267,10 @@ pre .k { color: var(--accent); }
 
   const $ = s => document.querySelector(s);
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const mock = new URLSearchParams(location.search).get("mock") === "1";
+  const params = new URLSearchParams(location.search);
+  const mock = params.get("mock") === "1";
+  const single = location.pathname.replace(/\/$/, "").endsWith("/monitor") || params.get("monitor") === "1";
+  if (single) document.body.classList.add("single");
   let publicBase = location.origin;
   let stats = null;
   let events = [];
@@ -270,10 +284,12 @@ pre .k { color: var(--accent); }
   }
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DWELL = 9000;
+  // Each fact stays up 6 to 12 seconds, so screens drift apart instead of changing in lockstep.
+  const dwell = () => Math.round(DWELL * (0.7 + Math.random() * 0.6));
 
-  const state = { loc: LOCATIONS[0], n: 4, view: "flat", dist: 6, paused: false, pausedAt: 0 };
+  const state = { loc: LOCATIONS[0], n: single ? 1 : 4, view: "flat", dist: 6, paused: false, pausedAt: 0 };
   let faces = [];
-  let pointer = 0;
+  let queue = [];
   let angle = 0, target = 0, lastT = performance.now();
 
   // The mock retains the original QR; live mode encodes each fact's opt-in URL.
@@ -300,7 +316,9 @@ pre .k { color: var(--accent); }
 
   const fmt = n => n.toLocaleString("en-US");
   const clock = () => new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const widthFor = d => Math.round(68 * (0.6 / d) / 0.02646); // a 55-inch portrait screen (68 cm wide) seen from d metres
+  const widthFor = d => single
+    ? Math.max(180, Math.floor(Math.min(innerWidth * .92, (innerHeight - 60) / (16 / 9 + .13)))) // fill the window, stand included
+    : Math.round(68 * (0.6 / d) / 0.02646); // a 55-inch portrait screen (68 cm wide) seen from d metres
 
   function layerHTML(key, color, dur) {
     if (key === EMPTY) return `<div class="l-top"><span>${esc(state.loc.label)}</span><span>${clock()}</span></div>
@@ -331,13 +349,19 @@ pre .k { color: var(--accent); }
     requestAnimationFrame(step);
   }
 
-  function nextFact(exclude) {
-    const list = state.loc.facts;
-    for (let tries = 0; tries < list.length; tries++) {
-      const key = list[pointer % list.length]; pointer++;
-      if (!exclude.includes(key)) return key;
+  // Take facts in rotation order, but skip any whose count another screen shows right now (or this
+  // screen just showed), so neighbouring screens always show different numbers. Skipped facts wait their turn.
+  function nextFact(face) {
+    const others = faces.filter(f => f !== face && F[f.key]);
+    const keys = new Set(others.map(f => f.key));
+    const counts = new Set(others.map(f => F[f.key].n));
+    const last = F[face.key] ? F[face.key].n : null;
+    if (!queue.length) queue = state.loc.facts.slice();
+    for (const fits of [k => !keys.has(k) && !counts.has(F[k].n) && F[k].n !== last, k => !keys.has(k) && F[k].n !== last, k => !keys.has(k)]) {
+      const i = queue.findIndex(k => F[k] && fits(k));
+      if (i >= 0) return queue.splice(i, 1)[0];
     }
-    return list[pointer++ % list.length];
+    return queue.shift();
   }
   function nextColor(face) {
     const used = faces.map(f => f.color);
@@ -349,7 +373,7 @@ pre .k { color: var(--accent); }
   }
 
   function show(face, now, dur) {
-    face.key = state.loc.facts.length ? nextFact(faces.map(f => f.key)) : EMPTY;
+    face.key = state.loc.facts.length ? nextFact(face) : EMPTY;
     face.color = nextColor(face);
     face.until = now + dur;
     const p = PALETTE[face.color];
@@ -388,10 +412,10 @@ pre .k { color: var(--accent); }
     const secs = Math.max(1, (tapeEl.scrollWidth / 3) / (w * 0.2));
     cluster.querySelectorAll(".tape").forEach(t => t.style.setProperty("--tapedur", secs + "s"));
 
-    pointer = 0;
+    queue = [];
     faces = [...cluster.querySelectorAll(".unit")].map((u, i) => ({ layers: u.querySelector(".layers"), key: null, color: (i * 2) % PALETTE.length - 1, until: 0 }));
     const now = performance.now();
-    faces.forEach((f, i) => show(f, now, DWELL + i * Math.round(DWELL / n)));
+    faces.forEach((f, i) => show(f, now, dwell() + i * Math.round(DWELL / n)));
     if (state.paused) state.pausedAt = now;
 
     $("#caption").textContent = `${state.loc.name} · ${state.loc.place} · ${n} screens back to back. Each is sized like a 55-inch portrait screen seen from ${state.dist} m, if you sit about 60 cm from your own screen.`;
@@ -401,7 +425,7 @@ pre .k { color: var(--accent); }
 
   function renderQueue() {
     const on = faces.map(f => f.key);
-    $("#queue-sub").textContent = `${state.loc.facts.length} big facts for ${state.loc.name.toLowerCase()} screens. Each one stays up for ${DWELL / 1000} seconds, and neighbouring screens change at different times.`;
+    $("#queue-sub").textContent = `${state.loc.facts.length} big facts for ${state.loc.name.toLowerCase()} screens. Each one stays up for 6 to 12 seconds, so neighbouring screens change at different times and never show the same number at once. Click a screen to skip ahead.`;
     $("#queue").innerHTML = state.loc.facts.map(key => {
       const f = F[key];
       const fi = faces.findIndex(x => x.key === key);
@@ -493,7 +517,7 @@ pre .k { color: var(--accent); }
   function loop(t) {
     const dt = t - lastT; lastT = t;
     if (!state.paused) {
-      faces.forEach(f => { if (t >= f.until) show(f, t, DWELL); });
+      faces.forEach(f => { if (t >= f.until) show(f, t, dwell()); });
       if (state.view === "prism" && !reduced) target -= dt * 0.0055;
     }
     angle += (target - angle) * Math.min(1, dt / 160);
@@ -520,6 +544,21 @@ pre .k { color: var(--accent); }
     $("#cluster").classList.toggle("paused", state.paused);
     syncButtons();
   });
+  // Clicking a screen (or space / arrow keys on the one-monitor page) moves it to its next fact.
+  function advance(face) {
+    if (!face) return;
+    const now = performance.now();
+    show(face, now, dwell());
+    if (state.paused) state.pausedAt = now;
+  }
+  $("#cluster").addEventListener("click", e => {
+    const unit = e.target.closest(".unit");
+    if (unit) advance(faces[[...$("#cluster").children].indexOf(unit)]);
+  });
+  document.addEventListener("keydown", e => {
+    if (single && [" ", "ArrowRight", "ArrowDown", "Enter"].includes(e.key)) { e.preventDefault(); advance(faces[0]); }
+  });
+  addEventListener("resize", () => { if (single) $("#scene").style.setProperty("--w", widthFor(state.dist) + "px"); });
   $("#turn-l").addEventListener("click", () => { target += 360 / state.n; });
   $("#turn-r").addEventListener("click", () => { target -= 360 / state.n; });
 
