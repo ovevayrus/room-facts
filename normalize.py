@@ -284,6 +284,24 @@ def language_name(value):
     return name.title()
 
 
+def field_names(value):
+    """Fields of study from one LinkedIn education entry: "Data Science & Analytics, Statistics" -> two fields."""
+    if not isinstance(value, str):
+        return []
+    result = []
+    for part in re.split(r"[,;/|]", value):
+        name = " ".join(part.replace("&", " and ").split()).strip(" .-")
+        if not re.search(r"[A-Za-z]{2}", name):  # keeps AI, CS, UX; drops "B.S." and "-"
+            continue
+        if len(name) <= 4 and " " not in name:
+            name = name.upper() if name.islower() else name
+        elif name.islower() or name.isupper():
+            name = name.title()
+        if slug(name) and slug(name) not in {slug(n) for n in result}:
+            result.append(name)
+    return result
+
+
 GENERIC_HASHTAGS = set("ai artificialintelligence machinelearning tech technology innovation startups startup hiring career learning linkedin opentowork jobsearch software softwareengineering programming coding datascience genai generativeai".split())
 GENERIC_IG_HASHTAGS = GENERIC_HASHTAGS | set("fyp foryou instadaily instalike instagram instagood love viral sf sanfrancisco bayarea business entrepreneur photooftheday explore reels trending".split())
 

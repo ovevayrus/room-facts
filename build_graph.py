@@ -8,7 +8,7 @@ from pathlib import Path
 
 from falkordb import FalkorDB
 
-from normalize import GENERIC_IG_HASHTAGS, city_id, city_name, country, display_name, entity_slug, funding_stage, hashtags, instagram_handle, language_name, linkedin_org_slug, linkedin_slug, root_domain, slug, x_handle
+from normalize import GENERIC_IG_HASHTAGS, city_id, city_name, country, display_name, entity_slug, field_names, funding_stage, hashtags, instagram_handle, language_name, linkedin_org_slug, linkedin_slug, root_domain, slug, x_handle
 
 ROOT = Path(__file__).resolve().parent
 OPTINS = ROOT / "data" / "optins.json"
@@ -21,7 +21,7 @@ KINDS = {
     "hashtag": ("POSTED_ABOUT", "Hashtag"), "tagged_company": ("TAGGED", "Company"),
     "repo": ("CONTRIBUTED_TO", "Repo"), "gh_org": ("MEMBER_OF", "GitHubOrg"),
     "prog_lang": ("WRITES", "ProgLang"), "gh_since": ("ON_GITHUB_SINCE", "Year"),
-    "ig_hashtag": ("POSTED_ON_IG", "Hashtag"),
+    "ig_hashtag": ("POSTED_ON_IG", "Hashtag"), "field": ("STUDIED_FIELD", "Field"),
 }
 ORG_PATHS = {
     "industry": ("Company", "IN_INDUSTRY", "Industry", "company"),
@@ -167,6 +167,9 @@ def prepare(luma, linkedin, orgs=None, x_profiles=None, posts=None, github=None,
             if isinstance(school, dict) and isinstance(school.get("title"), str) and school["title"].strip():
                 titled_school = True
                 add("school", pid, school["title"], link=school.get("url"), degree=school.get("degree"), field=school.get("field"), start=school.get("start_year"), end=school.get("end_year"))
+            if isinstance(school, dict):
+                for field in field_names(school.get("field")):
+                    add("field", pid, field)
         if not titled_school and isinstance(profile.get("educations_details"), str):
             add("school", pid, profile["educations_details"])
         experiences = list(profile.get("experience") or [])
