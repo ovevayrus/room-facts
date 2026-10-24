@@ -188,7 +188,8 @@ def optin(body: OptInBody, request: Request, response: Response):
     owner = auth_person(request)
     is_owner = bool(owner and owner["id"] == pid)
     with _lock:
-        catalog = snapshot(force=True)["catalog"]
+        # Mutations refresh the cache below; reuse it for this membership check.
+        catalog = snapshot()["catalog"]
         mine = {f["id"] for f in catalog.values() if pid in f["all_holders"]}
         if any(fid not in mine for fid in body.hide):
             raise HTTPException(422, "A hidden fact does not belong to this person")
@@ -282,7 +283,8 @@ def fact_people(id: str, request: Request):
     person = auth_person(request)
     if not person:
         raise HTTPException(403, "Opt-in required")
-    fact = snapshot(force=True)["catalog"].get(id)
+    # Opt-in, opt-out and fact reviews refresh this catalog before releasing the lock.
+    fact = snapshot()["catalog"].get(id)
     if not fact or not fact["eligible"] or person["id"] not in fact["holders"]:
         raise HTTPException(403, "Fact membership required")
     rows = graph().ro_query("MATCH (p:Person) WHERE p.id IN $ids AND p.opted_in=true RETURN p.id, p.name, p.avatar, p.linkedin ORDER BY p.name", {"ids": list(fact["holders"])}).result_set

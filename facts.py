@@ -258,12 +258,12 @@ def fact_catalog(rows, min_n=None, max_n=None, hidden_combos=None):
             add("repo_lang", [rid, lid], [next(iter(repo_holders.values())), next(iter(lang_holders.values()))], visible, shared, shared - set(visible))
     for sid, school_holders in by_kind["school"].items():
         for cid, company_holders in by_kind["company"].items():
+            shared = school_holders.keys() & company_holders.keys()
+            if not shared:
+                continue
             school_name = next(iter(school_holders.values()))["name"]
             company_name = next(iter(company_holders.values()))["name"]
             if sid == cid or slug(school_name) == slug(company_name) or entity_slug(school_name, "school") == entity_slug(company_name, "school"):
-                continue
-            shared = set(school_holders) & set(company_holders)
-            if not shared:
                 continue
             fid = f"school_company:{sid}>{cid}"
             visible = {p: school_holders[p] for p in shared if not school_holders[p]["hidden"] and not company_holders[p]["hidden"] and fid not in hidden_combos.get(p, ())}
@@ -273,7 +273,7 @@ def fact_catalog(rows, min_n=None, max_n=None, hidden_combos=None):
     for i, aid in enumerate(companies):
         for bid in companies[i + 1:]:
             a, b = by_kind["company"][aid], by_kind["company"][bid]
-            shared = set(a) & set(b)
+            shared = a.keys() & b.keys()
             if not shared:
                 continue
             fid = f"company_company:{aid}>{bid}"
