@@ -235,21 +235,21 @@ def test_optin_event_uses_third_person_line(monkeypatch):
     monkeypatch.setattr(server, "save_optins", lambda data: None)
     monkeypatch.setattr(server, "_events", [])
     server.optin(server.OptInBody(person_id="u0"), Request({"type": "http", "headers": []}), Response())
-    assert snapshot_calls == [False, True]
+    assert snapshot_calls == [True, True]
     assert server._events[0]["text"] == "Someone who speaks Hindi just opted in"
 
 
-def test_coholder_cache_reuse_and_immediate_privacy_refresh(monkeypatch):
+def coholder_app(monkeypatch):
     import hashlib
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
     import server
 
     fid = "language:hindi"
-    people = {f"u{i}": {"id": f"u{i}", "name": f"Attendee {i}", "avatar": "", "linkedin": "", "opted_in": i > 0} for i in range(3)}
+    people = {f"u{i}": {"id": f"u{i}", "name": f"Attendee {i}", "avatar": "", "linkedin": "", "opted_in": i > 0} for i in range(5)}
+    memberships = {fid: set(people)}
     hidden = {}
-    saved = {"u1": {"tokens": [hashlib.sha256(b"fixture-token").hexdigest()]}}
-    catalog_reads = []
+    saved = {"u2": {"tokens": [hashlib.sha256(b"fixture-token").hexdigest()]}}
 
     class Graph:
         def query(self, query, params):
@@ -264,8 +264,12 @@ def test_coholder_cache_reuse_and_immediate_privacy_refresh(monkeypatch):
             return SimpleNamespace(result_set=rows)
 
     def graph_rows(graph):
-        catalog_reads.append(True)
-        return [(pid, "SPEAKS", "Language", "hindi", "Hindi", fid in hidden.get(pid, ()), person["opted_in"], False) for pid, person in people.items()]
+        rows = []
+        for fact_id, holders in memberships.items():
+            kind, entity_id = fact_id.split(":", 1)
+            rel, label = {"language": ("SPEAKS", "Language"), "company": ("WORKED_AT", "Company"), "cert": ("CERTIFIED", "Cert")}[kind]
+            rows.extend((pid, rel, label, entity_id, entity_id.title(), fact_id in hidden.get(pid, ()), people[pid]["opted_in"], kind == "company") for pid in sorted(holders))
+        return rows
 
     def save_optins(data):
         saved.clear()
@@ -284,33 +288,58 @@ def test_coholder_cache_reuse_and_immediate_privacy_refresh(monkeypatch):
     monkeypatch.setenv("MAX_N", "12")
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
 
-    client = TestClient(server.app)
+    return SimpleNamespace(client=TestClient(server.app), memberships=memberships, hidden=hidden, saved=saved)
+
+
+def test_coholder_reads_external_hides_within_cache_window(monkeypatch):
+    from fastapi.testclient import TestClient
+    import server
+
+    state = coholder_app(monkeypatch)
+    client = state.client
+    fid = "language:hindi"
     route = "/api/fact/" + fid + "/people"
     assert client.get("/api/facts").status_code == 200
-    assert len(catalog_reads) == 1
     assert client.post("/api/optin", json={"person_id": "u0"}).status_code == 200
-    assert len(catalog_reads) == 2
-    for _ in range(2):
-        assert len(client.get(route).json()["people"]) == 2
-    assert len(catalog_reads) == 2
+    assert len(client.get(route).json()["people"]) == 4
 
-    assert client.post("/api/me/facts", json={"hide": [fid]}).status_code == 200
-    assert len(catalog_reads) > 2
-    after_hide = len(catalog_reads)
+    # Another process updates the graph while the API's five-second cache is warm.
+    state.hidden["u1"] = {fid}
+    assert [person["name"] for person in client.get(route).json()["people"]] == ["Attendee 2", "Attendee 3", "Attendee 4"]
+    state.hidden["u0"] = {fid}
     assert client.get(route).status_code == 403
-    assert len(catalog_reads) == after_hide
+    # The fact still meets k=3: denial must respect the requester's hidden membership.
+    assert client.get("/api/fact/" + fid).json()["n"] == 3
 
     assert client.post("/api/me/facts", json={"show": [fid]}).status_code == 200
-    assert len(catalog_reads) > after_hide
-    after_show = len(catalog_reads)
-    assert len(client.get(route).json()["people"]) == 2
-    assert len(catalog_reads) == after_show
+    assert len(client.get(route).json()["people"]) == 3
+    assert client.post("/api/me/facts", json={"hide": [fid]}).status_code == 200
+    assert client.get(route).status_code == 403
+    assert client.post("/api/me/facts", json={"show": [fid]}).status_code == 200
+    assert len(client.get(route).json()["people"]) == 3
 
     assert client.post("/api/optout").status_code == 200
-    assert len(catalog_reads) > after_show
-    after_optout = len(catalog_reads)
     assert client.get(route).status_code == 403
     other_client = TestClient(server.app)
     other_client.cookies.set("rf_token", "fixture-token")
-    assert [person["name"] for person in other_client.get(route).json()["people"]] == ["Attendee 2"]
-    assert len(catalog_reads) == after_optout
+    assert [person["name"] for person in other_client.get(route).json()["people"]] == ["Attendee 3", "Attendee 4"]
+
+
+def test_optin_reads_new_external_facts_before_validating_hides(monkeypatch):
+    state = coholder_app(monkeypatch)
+    assert state.client.get("/api/facts").status_code == 200
+
+    # These graph relationships arrive after the cached catalog, without an API mutation.
+    new_company = "company:new-employer"
+    unseen_cert = "cert:unreviewed-cert"
+    state.memberships[new_company] = {"u0", "u1", "u2", "u3"}
+    state.memberships[unseen_cert] = {"u0"}
+    response = state.client.post("/api/optin", json={"person_id": "u0", "hide": [new_company]})
+    assert response.status_code == 200
+    assert state.saved["u0"]["hidden"] == [new_company]
+    assert state.saved["u0"]["pending"] == [unseen_cert]
+    assert unseen_cert not in state.saved["u0"]["approved"]
+    assert state.client.get("/api/fact/" + new_company + "/people").status_code == 403
+    private = {fact["fact_id"]: fact for fact in state.client.get("/api/person/u0/facts").json()}
+    assert private[new_company]["hidden"]
+    assert private[unseen_cert]["pending"]
