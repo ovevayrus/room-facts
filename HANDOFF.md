@@ -61,7 +61,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 5. **Codex development runs on the owner's ChatGPT subscription** (`gpt-6-sol`). The **OpenAI API key is reserved for runtime features** in the app (see Next steps). It belongs in `.env` (gitignored), which the owner creates.
 6. **The repo is public.** Qodo Code Review reviews PRs (`.pr_agent.toml`). `main` is protected: PRs plus green CI only.
 7. **Hosting is the owner's laptop plus ngrok** (decided Oct 24, about 12:10; at most ~50 opt-ins expected). FalkorDB runs in Docker, `server.py` on :8000, and ngrok exposes it. Don't move to hosted infrastructure unless asked.
-8. **After opt-in, people see overlap cards** (decided Oct 24, about 12:10). They get a card for every other *opted-in* person who shares at least one non-hidden fact with them. Each card shows the person's name, avatar and LinkedIn link, plus the facts the two share, rarest first. It's mutual opt-in only, and only facts both people hold.
+8. **After opt-in, people see overlap cards** (decided Oct 24, about 12:10): every other *opted-in* person who shares a non-hidden fact with them, with name, LinkedIn and the shared facts. It's mutual opt-in only. This is being implemented as `/api/connections` on `feat/opt-in-connect` (see Next steps 2).
 
 ## Status (update this; last updated Oct 24, about 12:05)
 
@@ -82,13 +82,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 ## Next steps (pick in order)
 
 1. **Get PR #4 green:** check that CI passes and that Qodo marks its 3 findings resolved. Fix anything new. Then the owner merges #3, then #4 (retarget #4 to `main` after #3 merges). On the laptop afterwards: `python build_graph.py` and `python facts.py --preview 40` to eyeball the rotation.
-2. **Overlap cards (decision 8)**, as a new PR on top of #4:
-   - Add `GET /api/me/overlaps`, authenticated by the `rf_token` cookie (401 without it). For the requester, return every other opted-in person who shares at least one fact, excluding facts either person has hidden. Return `[{name, avatar, linkedin_url, shared:[{fact_id, kind, line_both ("You both studied at UC Berkeley"), n}]}]`. Sort shared facts by `n` ascending, and people by the sum of 1/n over shared facts, descending.
-   - Shared facts may include groups under 3, because both people opted in and both hold the fact. Never include people who haven't opted in, and never facts the requester doesn't hold.
-   - Add "both" wording per kind, next to LINES and YOU_LINES.
-   - `static/m.html` step 5 shows these cards ("People you overlap with"), keeping the existing visual style. It also keeps the scanned fact's group at the top, and the opt-in copy must say "people who opted in can see the facts you share with them". Don't touch `static/screen.html`.
-   - Tests: 401 without a token; people who haven't opted in are excluded; hidden facts are excluded; the requester isn't in the list; ordering.
-   - After merging, the owner runs `git pull` on the laptop and restarts the server.
+2. **Overlap cards (decision 8) are being built in a separate session** on branch `feat/opt-in-connect` (the worktree `../roomfacts-connect`). It adds `/api/connections` (every other opted-in person you share a visible fact with, refreshed every 15 s) and an OpenAI-assisted name lookup at opt-in (`assist.py`, key in `.env`). That session also runs the live laptop server behind ngrok. Don't build a second version. It branched from PR #3 before #4, so it will need to merge #4's `server.py` / `facts.py` changes (Qodo's person-facts privacy fix and the rotation) when it opens its PR. Merge order: #3, then #4, then opt-in-connect.
 3. **Demo prep:** rehearse the 90-second script in README.md. Have one audience member who holds a fact scan live (the owner's own facts are all under 3 holders). Open FalkorDB Browser with `demo_queries.cypher`.
 3. **Privacy hardening before going public at the venue** (known gaps):
    - `/api/people/search` lets anyone with the URL enumerate guest names. Require ≥ 3 characters, rate-limit per IP, and return at most 5 results.
