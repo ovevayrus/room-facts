@@ -131,7 +131,21 @@ def test_connections_skip_facts_pending_review(db_app):
     opt_in_and_review(client, "u1")
     assert "Stripe" in json.dumps(client.get("/api/connections").json())
     saved = json.loads(server.OPTINS.read_text())
-    saved["u2"]["pending"] = sorted(set(saved["u2"].get("pending", [])) | {"company:stripe"})
+    stripe = {f["id"] for f in server.snapshot(force=True)["catalog"].values() if "u2" in f["all_holders"] and "stripe" in f["id"]}
+    assert "company:stripe" in stripe
+    saved["u2"]["pending"] = sorted(set(saved["u2"].get("pending", [])) | stripe)
     server.OPTINS.write_text(json.dumps(saved))
     server._cache["at"] = 0
     assert "Stripe" not in json.dumps(client.get("/api/connections").json())
+
+
+def test_fuzzy_search_is_rate_limited_per_client(db_app, monkeypatch):
+    import assist
+    monkeypatch.setattr(assist, "env", lambda name: "")
+    monkeypatch.setattr(server, "_fuzzy_hits", {})
+    monkeypatch.setattr(server, "_lookups", {})
+    client = db_app
+    codes = [client.get("/api/people/search", params={"q": f"name{i:02d}", "fuzzy": 1}).status_code for i in range(13)]
+    assert codes[:12] == [200] * 12 and codes[12] == 429
+    other = client.get("/api/people/search", params={"q": "name99", "fuzzy": 1}, headers={"X-Forwarded-For": "203.0.113.9"})
+    assert other.status_code == 200

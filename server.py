@@ -23,7 +23,9 @@ app.mount("/static", StaticFiles(directory=ROOT / "static", check_dir=False), na
 _lock = RLock()
 _cache = {"at": 0.0, "catalog": {}, "facts": [], "generated_at": ""}
 _events = []
-_lookups = {}
+_lookups = {}  # fuzzy query -> (time, suggestions); expires so rebuilt guest data shows up
+_fuzzy_hits = {}  # client -> recent fuzzy lookup times, for the per-client limit
+LOOKUP_TTL = 60.0
 
 
 def graph():
@@ -145,19 +147,42 @@ def events(since: str | None = None):
     return [{"at": e["at"], "text": e["text"]} for e in _events if e["fact_id"] in eligible and (not cutoff or datetime.fromisoformat(e["at"]) > cutoff)]
 
 
+def client_key(request):
+    # Behind ngrok every request comes from localhost; the first forwarded address is the phone.
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "")
+
+
+def fuzzy_allowed(request, limit=12, window=60.0):
+    now = time.monotonic()
+    with _lock:
+        hits = [t for t in _fuzzy_hits.get(client_key(request), []) if now - t < window]
+        if len(hits) >= limit:
+            _fuzzy_hits[client_key(request)] = hits
+            return False
+        _fuzzy_hits[client_key(request)] = hits + [now]
+        if len(_fuzzy_hits) > 2000:
+            _fuzzy_hits.pop(next(iter(_fuzzy_hits)))
+        return True
+
+
 @app.get("/api/people/search")
-def people_search(q: str = "", fuzzy: bool = False):
+def people_search(request: Request, q: str = "", fuzzy: bool = False):
     q = q.strip()
     if len(q) < 2:
         return []
     if fuzzy:
         if len(q) < 3:
             return []
-        if q.lower() not in _lookups:
-            _lookups[q.lower()] = assist.lookup(graph(), q)
+        key = q.lower()
+        cached = _lookups.get(key)
+        if not cached or time.monotonic() - cached[0] > LOOKUP_TTL:
+            if not fuzzy_allowed(request):
+                raise HTTPException(429, "Too many searches. Please wait a moment.")
+            _lookups[key] = cached = (time.monotonic(), assist.lookup(graph(), q))
             while len(_lookups) > 500:
                 _lookups.pop(next(iter(_lookups)))
-        return [{**row, "suggested": True} for row in _lookups[q.lower()]]
+        return [{**row, "suggested": True} for row in cached[1]]
     rows = graph().ro_query("MATCH (p:Person) WHERE toLower(p.name) CONTAINS toLower($q) OR toLower(p.linkedin) CONTAINS toLower($q) RETURN p.id, p.name, p.avatar ORDER BY p.name LIMIT 8", {"q": q}).result_set
     return [{"id": pid, "name": name or "", "avatar": avatar or ""} for pid, name, avatar in rows]
 
@@ -203,8 +228,8 @@ def optin(body: OptInBody, request: Request, response: Response):
     owner = auth_person(request)
     is_owner = bool(owner and owner["id"] == pid)
     with _lock:
-        # Mutations refresh the cache below; reuse it for this membership check.
-        catalog = snapshot()["catalog"]
+        # External graph changes must be reflected in hide validation and checklist approval.
+        catalog = snapshot(force=True)["catalog"]
         mine = {f["id"] for f in catalog.values() if pid in f["all_holders"]}
         if any(fid not in mine for fid in body.hide):
             raise HTTPException(422, "A hidden fact does not belong to this person")
@@ -307,8 +332,8 @@ def fact_people(id: str, request: Request):
     person = auth_person(request)
     if not person:
         raise HTTPException(403, "Opt-in required")
-    # Opt-in and opt-out refresh this catalog before releasing the lock.
-    fact = snapshot()["catalog"].get(id)
+    # Visibility may have changed in another process; refresh before disclosing identities.
+    fact = snapshot(force=True)["catalog"].get(id)
     if not fact or not fact["eligible"] or person["id"] not in fact["holders"]:
         raise HTTPException(403, "Fact membership required")
     rows = graph().ro_query("MATCH (p:Person) WHERE p.id IN $ids AND p.opted_in=true RETURN p.id, p.name, p.avatar, p.linkedin ORDER BY p.name", {"ids": list(fact["holders"])}).result_set

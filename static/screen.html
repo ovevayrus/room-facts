@@ -317,7 +317,7 @@ body.single .hint { display: block; }
   const fmt = n => n.toLocaleString("en-US");
   const clock = () => new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const widthFor = d => single
-    ? Math.max(180, Math.floor(Math.min(innerWidth * .92, (innerHeight - 60) / (16 / 9 + .13)))) // fill the window, stand included
+    ? Math.max(40, Math.floor(Math.min(innerWidth * .92, (innerHeight - 60) / (16 / 9 + .13)))) // fill the window, stand included
     : Math.round(68 * (0.6 / d) / 0.02646); // a 55-inch portrait screen (68 cm wide) seen from d metres
 
   function layerHTML(key, color, dur) {
@@ -350,18 +350,27 @@ body.single .hint { display: block; }
   }
 
   // Take facts in rotation order, but skip any whose count another screen shows right now (or this
-  // screen just showed), so neighbouring screens always show different numbers. Skipped facts wait their turn.
+  // screen just showed), so neighbouring screens always show different numbers. Skipped facts wait their
+  // turn. If nothing left in this round fits, borrow from the whole rotation before relaxing a rule, and
+  // never repeat a fact that is already on another screen unless there are fewer facts than screens.
   function nextFact(face) {
     const others = faces.filter(f => f !== face && F[f.key]);
     const keys = new Set(others.map(f => f.key));
     const counts = new Set(others.map(f => F[f.key].n));
     const last = F[face.key] ? F[face.key].n : null;
-    if (!queue.length) queue = state.loc.facts.slice();
-    for (const fits of [k => !keys.has(k) && !counts.has(F[k].n) && F[k].n !== last, k => !keys.has(k) && F[k].n !== last, k => !keys.has(k)]) {
-      const i = queue.findIndex(k => F[k] && fits(k));
-      if (i >= 0) return queue.splice(i, 1)[0];
+    const all = state.loc.facts.filter(k => F[k]);
+    if (!queue.length) queue = all.slice();
+    for (const fits of [k => !counts.has(F[k].n) && F[k].n !== last, k => !counts.has(F[k].n), k => F[k].n !== last, () => true]) {
+      for (const pool of [queue, all]) {
+        const key = pool.find(k => F[k] && !keys.has(k) && fits(k));
+        if (key) {
+          const i = queue.indexOf(key);
+          if (i >= 0) queue.splice(i, 1);
+          return key;
+        }
+      }
     }
-    return queue.shift();
+    return all[0];
   }
   function nextColor(face) {
     const used = faces.map(f => f.color);
@@ -415,7 +424,8 @@ body.single .hint { display: block; }
     queue = [];
     faces = [...cluster.querySelectorAll(".unit")].map((u, i) => ({ layers: u.querySelector(".layers"), key: null, color: (i * 2) % PALETTE.length - 1, until: 0 }));
     const now = performance.now();
-    faces.forEach((f, i) => show(f, now, dwell() + i * Math.round(DWELL / n)));
+    // Spread the first changes across the 6-12 s range so screens start out of step.
+    faces.forEach((f, i) => show(f, now, Math.round(DWELL * (0.7 + 0.6 * (i + Math.random()) / n))));
     if (state.paused) state.pausedAt = now;
 
     $("#caption").textContent = `${state.loc.name} · ${state.loc.place} · ${n} screens back to back. Each is sized like a 55-inch portrait screen seen from ${state.dist} m, if you sit about 60 cm from your own screen.`;
@@ -556,7 +566,7 @@ body.single .hint { display: block; }
     if (unit) advance(faces[[...$("#cluster").children].indexOf(unit)]);
   });
   document.addEventListener("keydown", e => {
-    if (single && [" ", "ArrowRight", "ArrowDown", "Enter"].includes(e.key)) { e.preventDefault(); advance(faces[0]); }
+    if (single && [" ", "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Enter"].includes(e.key)) { e.preventDefault(); advance(faces[0]); }
   });
   addEventListener("resize", () => { if (single) $("#scene").style.setProperty("--w", widthFor(state.dist) + "px"); });
   $("#turn-l").addEventListener("click", () => { target += 360 / state.n; });

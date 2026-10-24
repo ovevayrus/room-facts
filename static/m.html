@@ -126,7 +126,11 @@
       }
       $("#results").innerHTML = rows.length ? (rows[0].suggested ? `<p class="muted">Did you mean:</p>` : "") + rows.slice(0,8).map((p,i) => `<button class="row" data-index="${i}">${avatar(p)}<span>${esc(p.name)}</span></button>`).join("") : `<p class="muted">No matches found. Try another spelling, or your LinkedIn handle.</p>`;
       $("#results").onclick = async e => { const button = e.target.closest("button[data-index]"); if (button) await choose(rows[+button.dataset.index], button); };
-    } catch (e) { error("Search is unavailable. Please try again."); }
+      error("");
+    } catch (e) {
+      if (busy || stage !== "search" || seq !== searchSeq) return;
+      error(e.status === 429 ? "Too many searches. Wait a moment and try again." : "Search is unavailable. Please try again.");
+    }
   }
   function choose(result, button) {
     return runAction(button, "Loading profile…", async () => {

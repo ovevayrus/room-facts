@@ -1,18 +1,18 @@
 """Name lookup at opt-in (optionally OpenAI-assisted) and who an opted-in person shares facts with."""
+from collections import defaultdict
 import difflib
 import json
 import os
+from threading import BoundedSemaphore
 
 import httpx
 
-from build_graph import KINDS, ORG_PATHS, ROOT
-from facts import YOU_LINES
-from normalize import COUNTRIES, country_phrase
+from build_graph import ROOT
+from facts import fact_path
 
 DEFAULT_MODEL = "gpt-5-mini"
-# Two-hop paths worth showing between two people (same industry, same HQ country, ...).
-PAIR_PATHS = ("industry", "company_country", "study_country", "investor", "funding_stage")
-KIND_OF = {value: kind for kind, value in KINDS.items()}
+# At most two OpenAI lookups at once; extra requests use the fuzzy matches alone.
+_openai_slots = BoundedSemaphore(2)
 
 
 def env(name):
@@ -36,7 +36,7 @@ def llm_json(system, user, schema, name):
     }
     if env("OPENAI_REASONING_EFFORT"):
         body["reasoning_effort"] = env("OPENAI_REASONING_EFFORT")
-    response = httpx.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {env('OPENAI_API_KEY')}"}, json=body, timeout=20)
+    response = httpx.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {env('OPENAI_API_KEY')}"}, json=body, timeout=8)
     response.raise_for_status()
     return json.loads(response.json()["choices"][0]["message"]["content"])
 
@@ -76,7 +76,7 @@ def lookup(graph, q):
     candidates = close_names(people, q)
     if not candidates:
         return []
-    if env("OPENAI_API_KEY"):
+    if env("OPENAI_API_KEY") and _openai_slots.acquire(blocking=False):
         try:
             payload = {"typed": q, "candidates": [{"id": pid, "name": name} for _, pid, name, _ in candidates]}
             ids = llm_json(PICK_PROMPT, json.dumps(payload, ensure_ascii=False), PICK_SCHEMA, "name_match").get("ids", [])
@@ -84,17 +84,19 @@ def lookup(graph, q):
             return [{"id": pid, "name": by_id[pid][1] or "", "avatar": by_id[pid][2] or ""} for pid in ids[:3] if pid in by_id]
         except Exception as error:
             print(f"OpenAI name lookup failed, using fuzzy matches: {error}")
+        finally:
+            _openai_slots.release()
     return [{"id": pid, "name": name or "", "avatar": avatar or ""} for _, pid, name, avatar in candidates[:3]]
 
 
-def both_line(kind, name):
-    if kind in {"country", "company_country", "study_country"}:
-        name = country_phrase(COUNTRIES.get(str(name).upper(), name))
-    line = YOU_LINES[kind].format(a=name, b=name)
-    for start, both in (("You are ", "You're both "), ("You have ", "You've both "), ("You ", "You both ")):
-        if line.startswith(start):
-            return both + line[len(start):]
-    return line
+def both_line(line_you):
+    """Turn a catalog "You ..." line into a "You both ..." line."""
+    rest = line_you[4:] if line_you.startswith("You ") else line_you
+    if rest.startswith("are "):
+        return "You're both " + rest[4:]
+    if rest.startswith("have ") and (rest.split()[1:2] or [""])[0].endswith(("ed", "been")):
+        return "You've both " + rest[5:]
+    return "You both " + rest
 
 
 def first_name(name):
@@ -102,40 +104,32 @@ def first_name(name):
 
 
 def connections(graph, viewer, catalog):
-    """Opted-in people who share at least one visible fact with the viewer, rarest overlap first."""
-    people = {}
+    """Opted-in people who share at least one visible catalog fact with the viewer, rarest overlap first.
 
-    def add(pid, name, avatar, linkedin, key, line, path):
-        # Only facts both people visibly hold in the catalog: hidden facts, hidden combos and facts
-        # still pending review are already left out of "holders".
-        fact = catalog.get(key)
-        if not fact or viewer not in fact["holders"] or pid not in fact["holders"]:
-            return
-        person = people.setdefault(pid, {"name": name or "", "avatar": avatar or "", "linkedin": linkedin or "", "shared": {}})
-        person["shared"].setdefault(key, {"n": max(len(fact["holders"]), 2), "line": line, "path": path})
-
-    rows = graph.ro_query(
-        "MATCH (v:Person {id:$v})-[r1]->(x)<-[r2]-(o:Person) "
-        "WHERE o.opted_in=true AND o.id<>$v AND type(r1)=type(r2) AND r1.hidden=false AND r2.hidden=false "
-        "RETURN o.id, o.name, o.avatar, o.linkedin, type(r1), labels(x)[0], x.id, x.name", {"v": viewer}).result_set
-    for pid, name, avatar, linkedin, rel, label, eid, ename in rows:
-        kind = KIND_OF.get((rel, label))
-        if kind:
-            add(pid, name, avatar, linkedin, f"{kind}:{eid}", both_line(kind, ename), ["You", rel, ename, rel, first_name(name)])
-    for kind in PAIR_PATHS:
-        source, rel, target, _ = ORG_PATHS[kind]
-        first = "WORKED_AT" if source == "Company" else "STUDIED_AT"
-        current = " AND r1.current=true AND r2.current=true" if kind in {"investor", "funding_stage"} else ""
-        rows = graph.ro_query(
-            f"MATCH (v:Person {{id:$v}})-[r1:{first}]->(a:{source})-[:{rel}]->(x:{target})<-[:{rel}]-(b:{source})<-[r2:{first}]-(o:Person) "
-            f"WHERE o.opted_in=true AND o.id<>$v AND a.id<>b.id AND r1.hidden=false AND r2.hidden=false{current} "
-            "RETURN o.id, o.name, o.avatar, o.linkedin, x.id, x.name, a.name, b.name", {"v": viewer}).result_set
-        for pid, name, avatar, linkedin, eid, ename, aname, bname in rows:
-            add(pid, name, avatar, linkedin, f"{kind}:{eid}", both_line(kind, ename), ["You", first, aname, rel, ename, rel, bname, first, first_name(name)])
+    Built from catalog holders, so every fact kind counts, and hidden, hidden-combo and pending facts
+    (already left out of "holders") never show. Paths come from fact_path, which names only the shared
+    entity, never the other person's own company or school.
+    """
+    shared = defaultdict(list)
+    for fact in catalog.values():
+        holders = fact["holders"]
+        if viewer in holders and len(holders) > 1:
+            for pid in holders - {viewer}:
+                shared[pid].append(fact)
+    if not shared:
+        return []
+    rows = graph.ro_query("MATCH (p:Person) WHERE p.id IN $ids AND p.opted_in=true RETURN p.id, p.name, p.avatar, p.linkedin", {"ids": sorted(shared)}).result_set
     result = []
-    for pid, person in people.items():
-        shared = sorted(person["shared"].values(), key=lambda s: (s["n"], s["line"]))
-        result.append({"name": person["name"], "avatar": person["avatar"], "linkedin": person["linkedin"], "score": sum(1 / s["n"] for s in shared),
-                       "shared": [{"line": s["line"], "path": s["path"]} for s in shared[:3]], "more": max(len(shared) - 3, 0)})
+    for pid, name, avatar, linkedin in rows:
+        facts = sorted(shared[pid], key=lambda f: (len(f["holders"]), f["line_you"]))
+        lines = []
+        for fact in facts:
+            try:
+                path = fact_path(fact)[:-1] + [first_name(name)]
+            except (KeyError, IndexError):
+                path = None
+            lines.append({"line": both_line(fact["line_you"]), "path": path})
+        result.append({"name": name or "", "avatar": avatar or "", "linkedin": linkedin or "", "score": sum(1 / len(f["holders"]) for f in facts),
+                       "shared": lines[:3], "more": max(len(lines) - 3, 0)})
     result.sort(key=lambda p: (-p["score"], p["name"]))
     return result
