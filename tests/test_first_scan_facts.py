@@ -161,10 +161,10 @@ def test_repeated_reviews_use_cache_and_rate_limit_before_graph_reads(review_app
     calls = []
     original = server.graph_rows
     monkeypatch.setattr(server, "graph_rows", lambda graph: (calls.append(1), original(graph))[1])
-    for _ in range(60):
-        assert client.post("/api/review-session", json={"person_id": "p0"}).status_code == 200
+    for index in range(60):
+        assert client.post("/api/review-session", json={"person_id": "p0"}, headers={"X-Forwarded-For": f"203.0.113.{index}"}).status_code == 200
     assert len(calls) == 1
-    assert client.post("/api/review-session", json={"person_id": "p0"}).status_code == 429
+    assert client.post("/api/review-session", json={"person_id": "p0"}, headers={"X-Forwarded-For": "198.51.100.1"}).status_code == 429
     assert len(calls) == 1 and saved == {} and mutations == []
 
 

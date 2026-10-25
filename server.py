@@ -161,9 +161,9 @@ def events(since: str | None = None):
 
 
 def client_key(request):
-    # Behind ngrok every request comes from localhost; the first forwarded address is the phone.
-    forwarded = request.headers.get("x-forwarded-for", "")
-    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "")
+    # Uvicorn resolves trusted proxy headers into request.client. Raw forwarded
+    # headers can be supplied by callers and must not choose their rate-limit key.
+    return request.client.host if request.client else ""
 
 
 def fuzzy_allowed(request, limit=12, window=60.0):

@@ -147,7 +147,9 @@ def test_fuzzy_search_is_rate_limited_per_client(db_app, monkeypatch):
     client = db_app
     codes = [client.get("/api/people/search", params={"q": f"name{i:02d}", "fuzzy": 1}).status_code for i in range(13)]
     assert codes[:12] == [200] * 12 and codes[12] == 429
-    other = client.get("/api/people/search", params={"q": "name99", "fuzzy": 1}, headers={"X-Forwarded-For": "203.0.113.9"})
+    assert client.get("/api/people/search", params={"q": "name98", "fuzzy": 1}, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
+    other_client = TestClient(server.app, client=("203.0.113.9", 50000))
+    other = other_client.get("/api/people/search", params={"q": "name99", "fuzzy": 1})
     assert other.status_code == 200
 
 
