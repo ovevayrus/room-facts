@@ -149,8 +149,8 @@ def graph_rows(graph):
 
 
 def hidden_combos_from_optins(optins):
-    """Per-fact suppressions that leave shared graph edges alone: hidden combos plus facts pending owner review."""
-    return {pid: {fid for fid in state.get("hidden", []) if str(fid).partition(":")[0] in SEPARATE_HIDDEN_COMBOS} | set(state.get("pending", []))
+    """Suppress combos, independent checkbox exclusions, and pending facts without hiding shared edges."""
+    return {pid: {fid for fid in state.get("hidden", []) if str(fid).partition(":")[0] in SEPARATE_HIDDEN_COMBOS} | set(state.get("pending", [])) | set(state.get("fact_hidden", []))
             for pid, state in optins.items() if isinstance(state, dict)}
 
 
