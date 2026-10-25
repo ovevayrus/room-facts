@@ -63,20 +63,20 @@ def test_investor_and_stage_count_only_current_employees():
         assert "r.current=true" in fact["pattern"]
 
     class Result:
-        result_set = []
+        result_set = [[[]]]
 
     class Graph:
         def __init__(self):
             self.queries = []
 
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             self.queries.append(query)
             return Result()
 
     graph = Graph()
     graph_rows(graph)
-    assert all("WHERE r.current=true" in query for query in graph.queries if "RETURN p.id, 'BACKED_BY'" in query or "RETURN p.id, 'AT_STAGE'" in query)
-    assert "WHERE r.current=true" not in next(query for query in graph.queries if "RETURN p.id, 'IN_INDUSTRY'" in query)
+    assert all("WHERE r.current=true" in query for query in graph.queries if "p.id, 'BACKED_BY'" in query or "p.id, 'AT_STAGE'" in query)
+    assert "WHERE r.current=true" not in next(query for query in graph.queries if "p.id, 'IN_INDUSTRY'" in query)
     assert all("WHERE b.current=true" in query for query in graph.queries if "<-[a:STUDIED_AT]" in query)
 
 
@@ -188,11 +188,11 @@ def test_graph_rows_reads_investor_as_two_hop():
         def __init__(self):
             self.queries = []
 
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             self.queries.append(query)
-            if "RETURN p.id, 'BACKED_BY'" in query:
-                return Result([("u", "BACKED_BY", "Investor", "y-combinator", "Y Combinator", False, False, True)])
-            return Result([])
+            if "p.id, 'BACKED_BY'" in query:
+                return Result([[[('u', 'BACKED_BY', 'Investor', 'y-combinator', 'Y Combinator', False, False, True)]]])
+            return Result([[[]]])
 
     graph = Graph()
     rows = graph_rows(graph)

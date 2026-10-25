@@ -11,7 +11,7 @@ from falkordb import FalkorDB
 from normalize import GENERIC_IG_HASHTAGS, city_id, city_name, country, display_name, entity_slug, funding_stage, hashtags, instagram_handle, language_name, linkedin_org_slug, linkedin_slug, root_domain, slug, x_handle
 
 ROOT = Path(__file__).resolve().parent
-OPTINS = ROOT / "data" / "optins.json"
+OPTINS = Path(os.getenv("OPTINS_PATH") or ROOT / "data" / "optins.json")
 KINDS = {
     "school": ("STUDIED_AT", "School"), "company": ("WORKED_AT", "Company"),
     "city": ("LIVES_IN", "City"), "country": ("BASED_IN", "Country"),

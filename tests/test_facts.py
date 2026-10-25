@@ -130,7 +130,7 @@ def test_rebuild_creates_issuer_relationship_and_graph_rows_reads_it(tmp_path, m
 
     class Result:
         def __init__(self, rows):
-            self.result_set = rows
+            self.result_set = [[rows]]
 
     class Graph:
         def __init__(self):
@@ -142,7 +142,7 @@ def test_rebuild_creates_issuer_relationship_and_graph_rows_reads_it(tmp_path, m
         def query(self, query, params=None):
             self.calls.append((query, params))
 
-        def ro_query(self, query):
+        def ro_query(self, query, params=None):
             if "ISSUED_BY" in query:
                 return Result([row(f"u{i}", "ISSUED_BY", "Issuer", "hugging-face", "Hugging Face") for i in range(3)])
             return Result([])

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import assist
 from build_graph import OPTINS, graph_client, load_optins, set_hidden
 from facts import eligible_facts, fact_catalog, fact_path, graph_rows, hidden_combos_from_optins, public_fact, rotation
 
@@ -22,6 +23,14 @@ app.mount("/static", StaticFiles(directory=ROOT / "static", check_dir=False), na
 _lock = RLock()
 _cache = {"at": 0.0, "catalog": {}, "facts": [], "generated_at": ""}
 _events = []
+_lookups = {}  # fuzzy query -> (time, suggestions); expires so rebuilt guest data shows up
+_fuzzy_hits = {}  # client -> recent fuzzy lookup times, for the per-client limit
+LOOKUP_TTL = 60.0
+_reviews = {}  # hashed, short-lived cookies; never grants access to connections or opt-in state
+_review_hits = {}
+REVIEW_TTL = 600.0
+REVIEW_LIMIT = 500
+MAX_DEVICE_TOKENS = 16
 
 
 def graph():
@@ -32,11 +41,19 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def optins_stamp():
+    try:
+        return OPTINS.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
 def snapshot(force=False):
     with _lock:
         if force or time.monotonic() - _cache["at"] >= 5:
+            stamp = optins_stamp()
             catalog = fact_catalog(graph_rows(graph()), hidden_combos=hidden_combos_from_optins(load_optins()))
-            _cache.update(at=time.monotonic(), catalog=catalog, facts=[public_fact(f) for f in rotation(catalog)], generated_at=now_iso())
+            _cache.update(at=time.monotonic(), catalog=catalog, facts=[public_fact(f) for f in rotation(catalog)], generated_at=now_iso(), optins=stamp)
         return _cache
 
 
@@ -81,6 +98,11 @@ def root():
 
 @app.get("/screen")
 def screen():
+    return FileResponse(ROOT / "static" / "screen.html")
+
+
+@app.get("/monitor")
+def monitor():
     return FileResponse(ROOT / "static" / "screen.html")
 
 
@@ -138,11 +160,42 @@ def events(since: str | None = None):
     return [{"at": e["at"], "text": e["text"]} for e in _events if e["fact_id"] in eligible and (not cutoff or datetime.fromisoformat(e["at"]) > cutoff)]
 
 
+def client_key(request):
+    # Uvicorn resolves trusted proxy headers into request.client. Raw forwarded
+    # headers can be supplied by callers and must not choose their rate-limit key.
+    return request.client.host if request.client else ""
+
+
+def fuzzy_allowed(request, limit=12, window=60.0):
+    now = time.monotonic()
+    with _lock:
+        hits = [t for t in _fuzzy_hits.get(client_key(request), []) if now - t < window]
+        if len(hits) >= limit:
+            _fuzzy_hits[client_key(request)] = hits
+            return False
+        _fuzzy_hits[client_key(request)] = hits + [now]
+        if len(_fuzzy_hits) > 2000:
+            _fuzzy_hits.pop(next(iter(_fuzzy_hits)))
+        return True
+
+
 @app.get("/api/people/search")
-def people_search(q: str = ""):
+def people_search(request: Request, q: str = "", fuzzy: bool = False):
     q = q.strip()
     if len(q) < 2:
         return []
+    if fuzzy:
+        if len(q) < 3:
+            return []
+        key = q.lower()
+        cached = _lookups.get(key)
+        if not cached or time.monotonic() - cached[0] > LOOKUP_TTL:
+            if not fuzzy_allowed(request):
+                raise HTTPException(429, "Too many searches. Please wait a moment.")
+            _lookups[key] = cached = (time.monotonic(), assist.lookup(graph(), q))
+            while len(_lookups) > 500:
+                _lookups.pop(next(iter(_lookups)))
+        return [{**row, "suggested": True} for row in cached[1]]
     rows = graph().ro_query("MATCH (p:Person) WHERE toLower(p.name) CONTAINS toLower($q) OR toLower(p.linkedin) CONTAINS toLower($q) RETURN p.id, p.name, p.avatar ORDER BY p.name LIMIT 8", {"q": q}).result_set
     return [{"id": pid, "name": name or "", "avatar": avatar or ""} for pid, name, avatar in rows]
 
@@ -163,22 +216,97 @@ def apply_hidden(g, pid, hidden):
         set_hidden(g, pid, fid)
 
 
-@app.get("/api/person/{id}/facts")
-def person_facts(id: str, request: Request):
-    person_row(id)
-    catalog = snapshot()["catalog"]
-    owner = auth_person(request)
-    private = bool(owner and owner["id"] == id)
-    pending = set(load_optins().get(id, {}).get("pending", [])) if private else set()
-    values = [f for f in catalog.values() if id in f["all_holders"] and (private or publicly_listed(f, id))]
+def review_session(request, pid):
+    token = request.cookies.get("rf_review")
+    if not token:
+        return None
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with _lock:
+        state = _reviews.get(digest)
+        if state and time.monotonic() - state["at"] >= REVIEW_TTL:
+            _reviews.pop(digest, None)
+            return None
+        return state if state and state["person_id"] == pid else None
+
+
+def person_fact_rows(pid, catalog, private=False, reviewed=None, connections_only=False, self_opted=False):
+    pending = set(load_optins().get(pid, {}).get("pending", [])) if private else set()
+    values = [f for f in catalog.values() if pid in f["all_holders"]
+              and (private or publicly_listed(f, pid)) and (reviewed is None or f["id"] in reviewed)]
+    connection_counts = {}
+    if private and connections_only:
+        connection_counts = {f["id"]: max(0, f["opted_in"] - int(self_opted and pid in f["holders"])) for f in values}
+        values = [f for f in values if connection_counts[f["id"]] > 0]
     values.sort(key=lambda f: (f["n"], f["kind"], f["id"]))
     return [{**{"fact_id": f["id"], "kind": f["kind"], "line_you": f["line_you"], "n_if_eligible": f["n"] if f["eligible"] else None},
-             **({"hidden": id in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
+             **({"connection_count": connection_counts[f["id"]]} if private and connections_only else {}),
+             **({"hidden": pid in f["hidden_holders"] and f["id"] not in pending, "pending": f["id"] in pending} if private else {})} for f in values]
+
+
+class ReviewSessionBody(BaseModel):
+    person_id: str
+    connections_only: bool = False
+
+
+@app.post("/api/review-session")
+def start_review(body: ReviewSessionBody, request: Request, response: Response):
+    with _lock:
+        now = time.monotonic()
+        key = client_key(request)
+        hits = [at for at in _review_hits.get(key, []) if now - at < 60]
+        if len(hits) >= 60:
+            raise HTTPException(429, "Too many reviews. Please wait a moment.")
+        _review_hits[key] = hits + [now]
+        if len(_review_hits) > 2000:
+            for old_key in list(_review_hits):
+                if not _review_hits[old_key] or now - _review_hits[old_key][-1] >= 60:
+                    _review_hits.pop(old_key, None)
+            if len(_review_hits) > 2000:
+                _review_hits.pop(next(iter(_review_hits)))
+        person = person_row(body.person_id)
+        for digest, state in list(_reviews.items()):
+            if now - state["at"] >= REVIEW_TTL:
+                _reviews.pop(digest, None)
+        old = request.cookies.get("rf_review")
+        old_digest = hashlib.sha256(old.encode("utf-8")).hexdigest() if old else None
+        if len(_reviews) >= REVIEW_LIMIT and old_digest not in _reviews:
+            raise HTTPException(429, "The room is busy. Please try again shortly.")
+        # A cached review is safe: final submission validates against a fresh graph,
+        # and facts not displayed in this review can never be silently approved.
+        catalog = snapshot(force=_cache.get("optins") != optins_stamp())["catalog"]
+        rows = person_fact_rows(body.person_id, catalog, private=True, connections_only=body.connections_only, self_opted=person["opted_in"])
+        owner = auth_person(request)
+        if not owner or owner["id"] != body.person_id:
+            previous = load_optins().get(body.person_id, {})
+            protected = set(previous.get("hidden", [])) | set(previous.get("fact_hidden", []))
+            for fact in rows:
+                if fact["fact_id"] in protected or fact.get("hidden"):
+                    fact["locked_hidden"] = True
+        token = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        if old_digest:
+            _reviews.pop(old_digest, None)
+        _reviews[digest] = {"person_id": body.person_id, "at": now, "facts": {f["fact_id"] for f in rows}}
+    response.set_cookie("rf_review", token, max_age=int(REVIEW_TTL), httponly=True, samesite="lax",
+                        secure=os.getenv("PUBLIC_BASE_URL", "").startswith("https://"))
+    return {"facts": rows}
+
+
+@app.get("/api/person/{id}/facts")
+def person_facts(id: str, request: Request, connections_only: bool = False):
+    person = person_row(id)
+    catalog = snapshot(force=connections_only and _cache.get("optins") != optins_stamp())["catalog"]
+    owner = auth_person(request)
+    is_owner = bool(owner and owner["id"] == id)
+    review = review_session(request, id) if not is_owner else None
+    return person_fact_rows(id, catalog, private=is_owner or bool(review), reviewed=review["facts"] if review else None,
+                            connections_only=connections_only, self_opted=bool(connections_only and person["opted_in"]))
 
 
 class OptInBody(BaseModel):
     person_id: str
     hide: list[str] = Field(default_factory=list)
+    show: list[str] | None = None
 
 
 @app.post("/api/optin")
@@ -188,14 +316,35 @@ def optin(body: OptInBody, request: Request, response: Response):
     owner = auth_person(request)
     is_owner = bool(owner and owner["id"] == pid)
     with _lock:
+        review = review_session(request, pid)
+        if body.show is not None and not is_owner and not review:
+            raise HTTPException(401, "Your fact review expired. Confirm your profile and review your facts again.")
         # External graph changes must be reflected in hide validation and checklist approval.
         catalog = snapshot(force=True)["catalog"]
         mine = {f["id"] for f in catalog.values() if pid in f["all_holders"]}
-        if any(fid not in mine for fid in body.hide):
-            raise HTTPException(422, "A hidden fact does not belong to this person")
+        hide, show = set(body.hide), set(body.show or [])
+        if hide & show:
+            raise HTTPException(422, "A fact cannot be both hidden and shown")
+        if (hide | show) - mine:
+            raise HTTPException(422, "A fact does not belong to this person")
         saved = load_optins()
         previous = saved.get(pid, {})
-        if is_owner:
+        tokens = list(dict.fromkeys(previous.get("tokens", [])))
+        if not is_owner and len(tokens) >= MAX_DEVICE_TOKENS:
+            raise HTTPException(429, "This profile has reached its device limit. Use an existing session.")
+        fact_hidden = set(previous.get("fact_hidden", []))
+        if body.show is not None:
+            reviewed = review["facts"] if review else mine
+            if (hide | show) - reviewed:
+                raise HTTPException(409, "Your facts changed. Confirm your profile and review them again.")
+            # A new graph fact cannot be approved by a checklist that never displayed it.
+            # Preserve historical relationship hides without an owner cookie.
+            # New choices suppress individual facts, leaving checked paths intact.
+            hidden = set(previous.get("hidden", [])) - (reviewed if is_owner else set())
+            fact_hidden = (fact_hidden - reviewed if is_owner else fact_hidden) | hide | ((reviewed & mine) - show)
+            approved = ((set(previous.get("approved", [])) - reviewed) | show) - hidden - fact_hidden
+            pending = (set(previous.get("pending", [])) | (mine - approved)) - hidden - fact_hidden - approved
+        elif is_owner:
             # The owner reviewed their full private list, so their choices replace the saved ones.
             hidden, pending, approved = set(body.hide), set(), mine - set(body.hide)
         else:
@@ -205,20 +354,29 @@ def optin(body: OptInBody, request: Request, response: Response):
             hidden = set(previous.get("hidden", [])) | set(body.hide)
             approved = (set(previous.get("approved", [])) | shown) - hidden
             pending = (set(previous.get("pending", [])) | (mine - approved)) - hidden
+        approved -= fact_hidden
+        pending -= fact_hidden
         g = graph()
         apply_hidden(g, pid, hidden)
-        at = now_iso()
+        at = previous.get("opted_in_at") or now_iso()
         g.query("MATCH (p:Person {id:$pid}) SET p.opted_in=true, p.opted_in_at=$at", {"pid": pid, "at": at})
-        token = secrets.token_urlsafe(32)
+        token = request.cookies["rf_token"] if is_owner else secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        saved[pid] = {"opted_in_at": at, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved), "tokens": [digest]}
+        tokens = list(dict.fromkeys([*tokens, digest]))
+        saved[pid] = {**previous, "opted_in_at": at, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved), "tokens": tokens}
+        if body.show is not None or "fact_hidden" in previous:
+            saved[pid]["fact_hidden"] = sorted(fact_hidden)
         save_optins(saved)
         snap = snapshot(force=True)
         suitable = next((f for f in snap["catalog"].values() if f["eligible"] and pid in f["holders"]), None)
         if suitable:
             _events.append({"at": at, "text": suitable["line_event"] + " just opted in", "fact_id": suitable["id"]})
             del _events[:-50]
+        if review:
+            token_to_consume = request.cookies.get("rf_review", "")
+            _reviews.pop(hashlib.sha256(token_to_consume.encode("utf-8")).hexdigest(), None)
     response.set_cookie("rf_token", token, httponly=True, samesite="lax", secure=os.getenv("PUBLIC_BASE_URL", "").startswith("https://"))
+    response.delete_cookie("rf_review")
     return {"ok": True, "person": public_person(person)}
 
 
@@ -240,14 +398,17 @@ def review_facts(body: FactReviewBody, request: Request):
         saved = load_optins()
         state = saved.get(pid, {})
         allowed = {f["id"] for f in snapshot(force=True)["catalog"].values() if pid in f["all_holders"]}
-        allowed |= set(state.get("hidden", [])) | set(state.get("pending", []))
+        allowed |= set(state.get("hidden", [])) | set(state.get("fact_hidden", [])) | set(state.get("pending", []))
         if any(fid not in allowed for fid in hide | show):
             raise HTTPException(422, "A fact does not belong to this person")
-        hidden = (set(state.get("hidden", [])) | hide) - show
+        hidden = (set(state.get("hidden", [])) | (hide if "fact_hidden" not in state else set())) - show
+        fact_hidden = (set(state.get("fact_hidden", [])) | hide) - show
         pending = set(state.get("pending", [])) - hide - show
         approved = (set(state.get("approved", [])) | show) - hide
         apply_hidden(graph(), pid, hidden)
         saved[pid] = {**state, "hidden": sorted(hidden), "pending": sorted(pending), "approved": sorted(approved)}
+        if "fact_hidden" in state:
+            saved[pid]["fact_hidden"] = sorted(fact_hidden)
         save_optins(saved)
         snapshot(force=True)
     return person_facts(pid, request)
@@ -276,6 +437,28 @@ def me(request: Request):
     if not person:
         raise HTTPException(401, "Not opted in")
     return public_person(person)
+
+
+@app.get("/api/connections")
+def connections(request: Request):
+    person = auth_person(request)
+    if not person:
+        raise HTTPException(401, "Not opted in")
+    # Names are disclosed here, so the answer must match current visibility. Take the catalog under the
+    # lock (rebuilt if optins.json changed in another process), read people outside it so opt-ins and
+    # reviews aren't held up, then confirm nothing changed: every hide, review or opt-out replaces the
+    # cached catalog before releasing the lock. If something did change, read again.
+    for _ in range(3):
+        with _lock:
+            catalog = snapshot(force=_cache.get("optins") != optins_stamp())["catalog"]
+        people = assist.connections(graph(), person["id"], catalog)
+        with _lock:
+            if _cache["catalog"] is catalog and _cache.get("optins") == optins_stamp():
+                break
+    else:
+        with _lock:
+            people = assist.connections(graph(), person["id"], snapshot(force=True)["catalog"])
+    return {"people": [{key: p[key] for key in ("name", "avatar", "linkedin", "shared", "more")} for p in people]}
 
 
 @app.get("/api/fact/{id:path}/people")
