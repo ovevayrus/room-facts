@@ -147,7 +147,9 @@ def test_fuzzy_search_is_rate_limited_per_client(db_app, monkeypatch):
     client = db_app
     codes = [client.get("/api/people/search", params={"q": f"name{i:02d}", "fuzzy": 1}).status_code for i in range(13)]
     assert codes[:12] == [200] * 12 and codes[12] == 429
-    other = client.get("/api/people/search", params={"q": "name99", "fuzzy": 1}, headers={"X-Forwarded-For": "203.0.113.9"})
+    assert client.get("/api/people/search", params={"q": "name98", "fuzzy": 1}, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
+    other_client = TestClient(server.app, client=("203.0.113.9", 50000))
+    other = other_client.get("/api/people/search", params={"q": "name99", "fuzzy": 1})
     assert other.status_code == 200
 
 
@@ -189,3 +191,60 @@ def test_connections_reread_when_a_hide_lands_mid_request(db_app, monkeypatch):
     monkeypatch.setattr(assist, "connections", racing)
     assert "Stripe" not in json.dumps(client.get("/api/connections").json())
     assert len(calls) == 2 and "Stripe" in json.dumps(calls[0])
+
+
+def test_choosing_industry_without_company_keeps_the_selected_overlap(db_app):
+    client = db_app
+    g = build_graph.graph_client()
+    g.query("MATCH (c:Company {id:'stripe'}) MERGE (i:Industry {id:'synthetic-software', name:'Synthetic Software'}) MERGE (c)-[:IN_INDUSTRY]->(i)")
+    industry = 'industry:synthetic-software'
+    for pid in ('u2', 'u1'):
+        client.cookies.clear()
+        response = client.post('/api/review-session', json={'person_id': pid})
+        response.raise_for_status()
+        assert industry in {f['fact_id'] for f in response.json()['facts']}
+        client.post('/api/optin', json={'person_id': pid, 'show': [industry]}).raise_for_status()
+    catalog = server.snapshot(force=True)['catalog']
+    assert 'u1' in catalog[industry]['holders'] and 'u1' not in catalog['company:stripe']['holders']
+    people = client.get('/api/connections').json()['people']
+    assert [p['name'] for p in people] == ['Bela Two']
+    assert 'Synthetic Software' in json.dumps(people) and 'Stripe' not in json.dumps(people)
+    # Later edits are independent too: hiding the industry can restore the company.
+    client.post('/api/me/facts', json={'hide': [industry], 'show': ['company:stripe']}).raise_for_status()
+    catalog = server.snapshot(force=True)['catalog']
+    assert 'u1' not in catalog[industry]['holders'] and 'u1' in catalog['company:stripe']['holders']
+    saved = server.load_optins()
+    assert saved['u1']['hidden'] == [] and industry in saved['u1']['fact_hidden']
+    # The graph retains the underlying edge, so choices survive a normal rebuild.
+    build_graph.rebuild(FIXTURES / 'luma_sample.json', FIXTURES / 'linkedin_sample.json', 'roomfacts_test')
+    catalog = server.snapshot(force=True)['catalog']
+    assert 'u1' in catalog['company:stripe']['holders'] and 'u2' not in catalog['company:stripe']['holders']
+
+
+def test_connected_fact_list_omits_solo_paths_hidden_and_pending_coholders(db_app):
+    client = db_app
+    g = build_graph.graph_client()
+    for cause in ('paired', 'concealed', 'unreviewed'):
+        g.query("MATCH (p:Person) WHERE p.id IN ['u1','u2'] MERGE (c:Cause {id:$cause, name:$cause}) MERGE (p)-[r:VOLUNTEERS_FOR]->(c) SET r.hidden=false", {'cause': cause})
+    g.query("MATCH (p:Person {id:'u1'}) MERGE (c:Company {id:'solo', name:'Solo Company'}) MERGE (p)-[r:WORKED_AT]->(c) SET r.hidden=false")
+    opt_in_and_review(client, 'u2')
+    client.post('/api/me/facts', json={'hide': ['cause:concealed']}).raise_for_status()
+    saved = server.load_optins()
+    saved['u2']['pending'] = ['cause:unreviewed']
+    saved['u2']['approved'] = [fid for fid in saved['u2']['approved'] if fid != 'cause:unreviewed']
+    server.save_optins(saved)
+    client.cookies.clear()
+    opt_in_and_review(client, 'u1')
+    complete = {f['fact_id'] for f in client.get('/api/person/u1/facts').json()}
+    assert {'company:solo', 'school_company:uc-berkeley>solo'} <= complete
+    response = client.get('/api/person/u1/facts?connections_only=true')
+    response.raise_for_status()
+    connected = {f['fact_id']: f for f in response.json()}
+    assert connected['cause:paired']['connection_count'] == 1
+    assert not {'company:solo', 'school_company:uc-berkeley>solo', 'cause:concealed', 'cause:unreviewed'} & set(connected)
+    assert all(f['connection_count'] >= 1 for f in connected.values())
+    # Asking for connections never grants anonymous access to private facts or counts.
+    client.cookies.clear()
+    anonymous = client.get('/api/person/u1/facts?connections_only=true').json()
+    assert 'cause:paired' not in {f['fact_id'] for f in anonymous}
+    assert all('connection_count' not in f and f['n_if_eligible'] >= 3 for f in anonymous)
