@@ -400,10 +400,15 @@ def set_hidden(graph, pid, fact_id, hidden=True):
         return
 
 
-def rebuild(luma_path, linkedin_path, graph_name, orgs_path=None, x_path=None, posts_path=None, github_path=None, instagram_path=None, crunchbase_path=None):
+def rebuild(luma_path, linkedin_path, graph_name, orgs_path=None, x_path=None, posts_path=None, github_path=None, instagram_path=None, crunchbase_path=None, extra_path=None):
     luma = json.loads(Path(luma_path).read_text(encoding="utf-8"))
     if not isinstance(luma, list):
         raise ValueError("Luma input must be a JSON list")
+    if extra_path and Path(extra_path).exists():
+        # People added by add_guest.py who aren't on the Luma list.
+        extra = json.loads(Path(extra_path).read_text(encoding="utf-8"))
+        known = {g.get("api_id") for g in luma if isinstance(g, dict)}
+        luma = luma + [g for g in extra if isinstance(g, dict) and g.get("api_id") not in known]
     linkedin = None
     if Path(linkedin_path).exists():
         try:
@@ -491,6 +496,7 @@ if __name__ == "__main__":
     parser.add_argument("--github", default=str(ROOT / "data" / "github_raw.json"))
     parser.add_argument("--instagram", default=str(ROOT / "data" / "instagram_raw.json"))
     parser.add_argument("--crunchbase", default=str(ROOT / "data" / "crunchbase_raw.json"))
+    parser.add_argument("--extra", default=str(ROOT / "data" / "extra_guests.json"))
     parser.add_argument("--graph", default=os.getenv("GRAPH", "roomfacts"))
     args = parser.parse_args()
-    rebuild(args.luma, args.linkedin, args.graph, args.orgs, args.x, args.li_posts, args.github, args.instagram, args.crunchbase)
+    rebuild(args.luma, args.linkedin, args.graph, args.orgs, args.x, args.li_posts, args.github, args.instagram, args.crunchbase, args.extra)

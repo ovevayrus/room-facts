@@ -51,6 +51,7 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 - `fetch_luma.py <event_api_id> <ticket_key>`: the ticket key is the `?tk=` value of the owner's Luma link. Never commit it.
 - The Bright Data scripts read `BRIGHTDATA_API_KEY` from the environment (`bd_key.py`).
 - `enrich_github.py` uses `gh auth token`.
+- **Adding someone who isn't on the Luma list** (a speaker or judge): `python add_guest.py "Full Name" --linkedin <url>`, or `--company <name>` to find them by name. It skips anyone already listed, scrapes only that one LinkedIn profile with Bright Data, writes `data/extra_guests.json`, and merges the profile into `data/linkedin_raw.json`. Then run `python build_graph.py`.
 
 ## Decisions the owner made (don't relitigate)
 
