@@ -1,35 +1,92 @@
 # Room Facts
 
-Rare, anonymous overlaps among event guests on rotating venue screens, backed by a FalkorDB graph. Scan a fact's QR code to opt in and meet the others who share it.
+Screens around a conference venue that show rare things the people in the room have in common, one at a time: "3 people here speak Romanian", "7 people here have contributed to nousresearch/hermes-agent". Each one is just a count. No names on the screen.
 
-**Continuing this project in another tool?** Start with [HANDOFF.md](HANDOFF.md).
+If one of them is you, scan the QR code under it, check which of your facts are right, and opt in. Then you can see the other people who opted in and share something with you, and go find them.
 
-## How changes land
+I built this in a day at [Patch the Conference](https://wemakedevs.org/hackathons/ptc) (Oct 24, 2026, San Francisco) for the FalkorDB track. It ran on the real guest list for the event, 616 people.
 
-Branch, then open a PR. CI runs pytest against a FalkorDB service plus a secrets and personal-data guard. Qodo Code Review comments on the PR, and you merge once it's green. Run `git config core.hooksPath .githooks` once per clone to get the same guard and tests locally before each commit and push.
+## Why
 
-Room Facts turns Luma registrations and optional LinkedIn enrichment into anonymous, rare overlap facts. FalkorDB stores the graph; FastAPI serves the screen and phone API.
+Before the hackathon I interviewed people who go to conferences, and read a lot of Hacker News threads about conference networking. The same things kept coming up:
 
-## Run
+- The meetings that led somewhere came from something people already shared (same school, same town, a friend of a friend, a peer vouching for something), not from being matched with a stranger on interests. One person told me they'd *rather* meet people from completely different backgrounds. The surprising person was the best part of their day.
+- People open conversations with tiny things, like a lanyard or "when's the next talk?"
+- Messages sent through the conference app go nowhere, because the other person isn't in the app.
+- Developers on HN hate cold networking and flip their badges so the QR code doesn't get them spammed.
 
-1. Start FalkorDB with Browser: `docker run -d --name roomfacts-db -p 6379:6379 -p 3000:3000 falkordb/falkordb:latest`. Open `http://localhost:3000` for the Browser.
-2. Install the Python packages: `pip install falkordb==1.8.* fastapi uvicorn requests httpx pytest`.
-3. Build the graph: `python build_graph.py`. It reads `data/luma_guests.json` and, if present, `data/linkedin_raw.json`. When LinkedIn is absent, all Luma guests are still loaded. To try synthetic data, run `python build_graph.py --luma tests/fixtures/luma_sample.json --linkedin tests/fixtures/linkedin_sample.json --graph roomfacts_test`.
-4. Start the API: `python server.py`. Open `http://localhost:8000/screen` and `http://localhost:8000/m`. Set `GRAPH=roomfacts_test` before starting if using the sample graph.
-5. For phones at the venue, start `ngrok http 8000` and set `PUBLIC_BASE_URL` to the resulting HTTPS URL before starting the API. This value is placed in QR codes through `/api/config`.
+So I wanted something that tells you there are people here you share something unusual with, gives you an opener, doesn't need an app, and never puts anyone's name on a wall.
 
-Optional environment variables: `FALKOR_HOST` (default `localhost`), `FALKOR_PORT` (default `6379`), `GRAPH` (default `roomfacts`), `MIN_N` (default `3`), `MAX_N` (default `12`), and `PUBLIC_BASE_URL`. The screen fact feed is cached for five seconds. Rebuild after the LinkedIn export arrives.
+The longer version, with the interviews, what I took from them and the ideas I threw away, is in [docs/how-i-found-the-problem.md](docs/how-i-found-the-problem.md).
 
-Opt-in state and SHA-256 token hashes are stored in `data/optins.json`. The file is created by the server on first opt-in and replayed by `build_graph.py` after every rebuild. Keep it on durable storage and restrict access to it. A user can opt out from the phone page.
+## How it works
 
-## Verify
+```
+Luma guest list ──► fetch_luma.py ──► data/luma_guests.json
+LinkedIn profiles ─► enrich_linkedin.py (Bright Data) ─► data/linkedin_raw.json
+Company/school pages, X, LinkedIn posts, Instagram, Crunchbase ─► bd_dataset.py (Bright Data)
+GitHub accounts ──► enrich_github.py (GitHub GraphQL)
+                         │
+build_graph.py + normalize.py ──► FalkorDB graph
+                         │
+facts.py   picks facts with 3+ people and mixes group sizes
+                         │
+server.py ──► /screen   rotating screens
+          ├─► /monitor  one-screen version (click or space for the next fact)
+          └─► /m        phone opt-in page, where the QR codes point
+```
 
-Run `pytest -q`. Pure normalization and fact selection tests run offline; database API tests skip with an explicit message when FalkorDB is unreachable. `demo_queries.cypher` contains Browser queries for graph inspection and rare path examples.
+Luma gives names plus the LinkedIn, X and Instagram handles people entered when they registered. Bright Data scrapes the public profiles behind those handles. GitHub accounts are only used when there's real evidence they belong to the guest (a published link, the GitHub profile listing their LinkedIn or X, the same website, or the same name and location).
 
-## 90-second stage demo
+A fact is a graph pattern. "People here work at companies backed by Sequoia" is `(p)-[:WORKED_AT]->(:Company)-[:BACKED_BY]->(:Investor)`. The phone page shows that path, so you can see why you were counted.
 
-1. **0–15 seconds:** Show the rotating venue screen and explain that each statement is a count over a live graph, shown only when at least three guests share it.
-2. **15–30 seconds:** Open FalkorDB Browser, paste the first two queries from `demo_queries.cypher`, and show Person, School, and Company nodes and their relationships.
-3. **30–50 seconds:** Scan a fact QR code. Show the fact and its Cypher path, then search for a sample attendee by name.
-4. **50–70 seconds:** Confirm that attendee, review their facts, uncheck a wrong one, and opt in. Show how the count can change when its edge is hidden.
-5. **70–90 seconds:** Show opted-in co-holders and the anonymous ticker event, then opt out. Emphasize that names are released only to opted-in people who share the fact.
+My first version showed rare facts first, and the screens ended up showing "3 people here…" over and over, mostly with broad stuff like "studied in the UK". Now `facts.py` cycles small, medium and large groups and prefers specific things (a particular university, a repo) over broad ones. [docs/rotation-variety.md](docs/rotation-variety.md) has the details.
+
+### Privacy
+
+The rules I didn't bend on:
+
+- Screens and every public endpoint return counts only, and only for groups of 3 or more.
+- You only see names after you opt in, and only of other opted-in people who share a fact with you.
+- You can untick anything that's wrong or that you don't want counted. Facts you never got to review don't count anywhere.
+- Scraped data never goes in git. `scripts/guard_commit.py` runs as a pre-commit hook and in CI to block `data/`, raw scrapes and anything that looks like a key.
+
+[SPEC.md](SPEC.md) has the full API and the exact privacy rules.
+
+## Run it
+
+1. Start FalkorDB: `docker run -d --name roomfacts-db -p 6379:6379 -p 3000:3000 falkordb/falkordb:latest`. The FalkorDB Browser is on `http://localhost:3000`.
+2. `pip install -r requirements.txt`
+3. Build the graph: `python build_graph.py`. It reads `data/luma_guests.json` plus whichever scraped files are in `data/`. The `data/` folder isn't in this repo since it's scraped personal data, so to try it without that, use the synthetic fixtures:
+   `python build_graph.py --luma tests/fixtures/luma_sample.json --linkedin tests/fixtures/linkedin_sample.json --graph roomfacts_test`
+4. Start the API: `python server.py` (set `GRAPH=roomfacts_test` first if you used the fixtures). Open `http://localhost:8000/screen` and `http://localhost:8000/m`.
+5. For phones at the venue, run `ngrok http 8000` and set `PUBLIC_BASE_URL` to the HTTPS URL before starting the API. That's the address the QR codes use.
+
+Other environment variables: `FALKOR_HOST` (default `localhost`), `FALKOR_PORT` (`6379`), `GRAPH` (`roomfacts`), `MIN_N` (`3`), `MAX_N` (`25`), and `OPENAI_API_KEY` in `.env`, which is optional and only used to help people find their own name when the plain search misses.
+
+Opt-ins are saved to `data/optins.json` (token hashes, not tokens) and replayed after every graph rebuild. Keep that file somewhere durable and private.
+
+To rebuild the real data you need your own Luma ticket key for the event (`python fetch_luma.py <event_api_id> <ticket_key>`), a Bright Data key in `BRIGHTDATA_API_KEY`, and `gh` logged in for the GitHub step.
+
+## Tests
+
+`pytest -q`. The normalization and fact selection tests run offline. The database tests need FalkorDB on port 6379 and skip with a message if it isn't there.
+
+`demo_queries.cypher` has queries to paste into the FalkorDB Browser to look at the graph and at a rare-fact path.
+
+## Making changes
+
+Branch, then open a PR. CI runs pytest against a FalkorDB service plus the data guard, and Qodo reviews the PR. Run `git config core.hooksPath .githooks` once after cloning to get the same checks locally before each commit and push.
+
+## Known gaps
+
+- Opt-in is self-claimed. You pick your own name and nothing proves it's you. A one-time code from your Luma ticket would fix that.
+- Name search should be rate limited and need a longer query, so nobody can page through the guest list.
+- ngrok's free tier shows a warning page on phones before the site loads. A Cloudflare tunnel avoids it.
+- It ran on my laptop for the demo. Fine for ~50 opt-ins, not for a real 3,000-person conference.
+
+[NOTES.md](NOTES.md) has the decisions I made during the build and what I'd do next.
+
+## How it was built
+
+One day, with Claude Code and Codex writing a lot of the code. The research, the privacy rules and the product decisions were mine. Qodo reviewed every PR and caught a few real privacy bugs along the way (see `tests/test_qodo_review.py`).

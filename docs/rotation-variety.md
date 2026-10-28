@@ -1,4 +1,6 @@
-# Rotation variety and niche facts (owner feedback, 11:45)
+# Rotation variety and niche facts
+
+My note at 11:45, after watching the first live rotation:
 
 > "The room facts are all showing only 3 and sometimes 4. Give me a range of different numbers of people for various different interesting facts, that would make people want to scan the QR code. Make it a bit more niche: instead of 'studied in the UK', be specific to different universities."
 
@@ -15,7 +17,7 @@ The data supports this. For example: 18 studied at UC Berkeley, 17 work at a ste
 Facts outside the rotation stay in the catalog: they still show on a person's phone ("Your facts") and through `/api/fact/{id}`.
 - **Tier 1** (specific, scan-worthy): school, repo, investor, company, tagged_company, hashtag, prog_lang, industry, city, language, ig_hashtag, and the section 4 combos. Cap 20 per kind, except ig_hashtag 6.
 - **Tier 2:** volunteer, funding_stage, org_kind, x_since, gh_since, founded_year. Cap 2 each.
-- **Tier 3** (broad or generic, which is what the owner disliked): cert 3, cert_issuer 3, cause 1, company_country 1, and **study_country 0 and country 0** (out of the rotation).
+- **Tier 3** (broad or generic, the stuff I didn't like seeing): cert 3, cert_issuer 3, cause 1, company_country 1, and **study_country 0 and country 0** (out of the rotation).
 
 ## 3. Ordering: spread the numbers
 Replace "rarest first" with a count-spread sequence:
