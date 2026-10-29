@@ -1,6 +1,10 @@
 # Room Facts
 
-Rare, anonymous overlaps among event guests on rotating venue screens, backed by a FalkorDB graph. Scan a fact's QR code to opt in and meet the others who share it.
+Room Facts shows rare overlaps among event guests as counts on venue screens. Scan a fact's QR code, find your name, review your facts and opt in to see people who share them.
+
+This is an event prototype backed by FalkorDB and FastAPI. Profile confirmation is self-identification, not proof of identity. The public repository includes synthetic fixtures; the owner's event dataset is intentionally excluded.
+
+Start with the [dataset and synthetic-demo guide](docs/DATASET_GUIDE.md). It explains input formats, matching, graph rebuilds, private state, and the limits of the phone flow without distributing anyone's attendee data.
 
 **Continuing this project in another tool?** Start with [HANDOFF.md](HANDOFF.md).
 
@@ -11,6 +15,8 @@ Branch, then open a PR. CI runs pytest against a FalkorDB service plus a secrets
 Room Facts turns Luma registrations and optional LinkedIn enrichment into anonymous, rare overlap facts. FalkorDB stores the graph; FastAPI serves the screen and phone API.
 
 ## Run
+
+For a fresh clone, follow the synthetic walkthrough above first. The commands below describe the existing operator workflow: graph rebuilds replace the selected graph, and `python server.py` binds all interfaces. Keep event exports and opt-in state outside the repository; use the guide's explicit paths and loopback API command for a local demo.
 
 1. Start FalkorDB with Browser: `docker run -d --name roomfacts-db -p 6379:6379 -p 3000:3000 falkordb/falkordb:latest`. Open `http://localhost:3000` for the Browser.
 2. Install the Python packages: `pip install falkordb==1.8.* fastapi uvicorn requests httpx pytest`.
