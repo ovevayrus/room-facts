@@ -89,6 +89,8 @@ git config core.hooksPath .githooks   # once per clone: secret/personal-data gua
 
 ## Next steps (pick in order)
 
+**Current documentation scope (Oct 29):** keep the original event dataset private and use `docs/DATASET_GUIDE.md` for fresh clones and fictional reproductions. Self-identification remains the owner's chosen demo flow; do not replace it as part of the portfolio documentation work.
+
 0. **Phone responsiveness:** review and merge `fix/phone-loading` after CI/Qodo. Its loading and catalog changes have also been applied to the local `../roomfacts-connect` source; keep them when that branch is finalized.
 1. **Get PR #4 green:** check that CI passes and that Qodo marks its 3 findings resolved. Fix anything new. Then the owner merges #3, then #4 (retarget #4 to `main` after #3 merges). On the laptop afterwards: `python build_graph.py` and `python facts.py --preview 40` to eyeball the rotation.
 2. **Overlap cards (decision 8) are done on `feat/opt-in-connect`** (worktree `../roomfacts-connect`, rebased onto `main` after #3 and #4, with a PR open). It has:
