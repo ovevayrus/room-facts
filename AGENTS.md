@@ -1,6 +1,6 @@
 # Room Facts
 
-Read `HANDOFF.md` first: status, decisions, next steps and the rules for continuing. `SPEC.md` is the API and privacy contract.
+Read `NOTES.md` first: decisions, current state, what's next and the repo rules. `SPEC.md` is the API and privacy contract. `docs/` has the research and the data notes.
 
 - Never commit `data/`, `.env`, scraped files or secrets; `scripts/guard_commit.py` enforces this.
 - Privacy rules in SPEC.md are hard requirements (counts only, k ≥ 3, names only to opted-in co-holders).

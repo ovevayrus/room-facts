@@ -1,4 +1,6 @@
-# New sources (scraped 10:47–11:00), to add to the graph
+# The other sources
+
+Scraped between 10:47 and 11:00 on build day, after LinkedIn.
 
 All files are in `data/`, written by `bd_dataset.py` / `enrich_github.py`. Error records have an `error` key. Join everything back to `Person` through the keys below. Keep the privacy rules in SPEC.md as they are: counts only, k≥3, names only via `/people`.
 

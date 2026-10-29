@@ -59,7 +59,7 @@ def close_names(people, q, limit=12):
     for pid, name, avatar, linkedin in people:
         full = [option for option in (str(name or "").lower(), str(linkedin or "").lower().replace("-", " ")) if option]
         tokens = str(name or "").lower().split()
-        # Whole-string similarity, or every typed word matching some word of the name (handles "Jai Gupta").
+        # Whole-string similarity, or every typed word matching some word of the name (handles "Sam Rivera").
         scores = [ratio(q, option) for option in full]
         if tokens and words:
             scores.append(sum(max(ratio(w, t) for t in tokens) for w in words) / len(words))

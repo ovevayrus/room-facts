@@ -1,15 +1,15 @@
-# Room Facts: live build spec
+# Room Facts spec
 
-Hackathon demo for today (Patch the Conference, judging 5:30 pm). Rotating screens at the venue show **rare, anonymous overlaps** among the 616 registered guests ("4 people here studied at UC Berkeley"). Each fact has a QR code. Scanning it opens a phone page where an attendee finds themself, confirms their facts, and opts in. They can then see the *other opted-in* people who share that fact. The graph lives in FalkorDB; every fact is a graph pattern, and we show the path behind it.
+I wrote this on the morning of the hackathon as the contract for the build and kept it up to date as things changed. Rotating screens at the venue show **rare, anonymous overlaps** among the 616 registered guests ("4 people here studied at UC Berkeley"). Each fact has a QR code. Scanning it opens a phone page where an attendee finds themself, confirms their facts, and opts in. They can then see the *other opted-in* people who share that fact. The graph lives in FalkorDB; every fact is a graph pattern, and we show the path behind it.
 
-Project folder: `C:\Users\oveva\01winningiphones\roomfacts` (Windows, Python 3.13, FalkorDB in Docker at `localhost:6379`, FalkorDB Browser at `localhost:3000`). Installed: `falkordb` 1.8, `fastapi`, `uvicorn`, `requests`, `httpx`, `pytest`.
+Stack: Python 3.13, FalkorDB in Docker (`localhost:6379`, Browser on `localhost:3000`), FastAPI. Versions are in `requirements.txt`.
 
-**Do not touch** `fetch_luma.py`, `enrich_linkedin.py`, `bd_key.py`, or anything in `data/` except `data/optins.json`. Never print or log the Bright Data key.
+The scrapers (`fetch_luma.py`, `enrich_linkedin.py`, `bd_dataset.py`, `enrich_github.py`) are separate from the app. The app only ever writes `data/optins.json`. Never print or log the Bright Data key.
 
 ## Privacy rules (hard requirements)
 
 1. The screens and every public endpoint return **counts only**. A fact needs `n >= MIN_N` (default 3) holders to appear anywhere public. A count below 3 is never shown, not even as "fewer than 3".
-2. Names are returned only to a requester who is opted in (valid token cookie), and only for other people who are also opted in **and** share at least one visible fact with them: `GET /api/fact/{id}/people` (holders of one screen fact) and `GET /api/connections` (everyone they share any visible fact with, including facts held by fewer than 3 people; owner decision, Oct 24). The k ≥ 3 rule still covers every public response.
+2. Names are returned only to a requester who is opted in (valid token cookie), and only for other people who are also opted in **and** share at least one visible fact with them: `GET /api/fact/{id}/people` (holders of one screen fact) and `GET /api/connections` (everyone they share any visible fact with, including facts held by fewer than 3 people, since both sides opted in). The k ≥ 3 rule still covers every public response.
 3. People can hide any of their facts (wrong data). Hidden edges don't count anywhere.
 4. Opt-in state survives a graph rebuild: persist it to `data/optins.json` (`{person_id: {"opted_in_at": iso, "hidden": [fact_id, ...], "pending": [fact_id, ...], "approved": [fact_id, ...], "tokens": [sha256, ...]}}`) and re-apply it after loading. `pending` facts were never shown to the person, so they don't count anywhere (screens, `/api/stats`, people lists) until the owner approves them. `approved` holds facts the person accepted in the checklist or approved later, so a re-opt-in without the cookie doesn't make them pending again.
 5. Confirming one's profile can create a ten-minute, person-bound review session. It permits only reviewing that person's facts and submitting the initial selection. It never authorizes connections, other people's names, changing facts, or opting out. It does not change graph visibility or saved opt-ins. A restart expires unfinished reviews; completed opt-in sessions persist.
@@ -21,8 +21,8 @@ The demo retains its existing self-identification model: confirming a name is a 
 
 `data/luma_guests.json`: list of Luma users:
 ```json
-{"api_id": "usr-…", "name": "Jai", "first_name": "Jai Surya", "last_name": "Gupta", "avatar_url": "https://…",
- "bio_short": "", "linkedin_handle": "/in/jai-surya-gupta", "twitter_handle": "…", "instagram_handle": "…",
+{"api_id": "usr-…", "name": "Sam", "first_name": "Sam", "last_name": "Rivera", "avatar_url": "https://…",
+ "bio_short": "", "linkedin_handle": "/in/sam-rivera", "twitter_handle": "…", "instagram_handle": "…",
  "website": null, "timezone": "America/Los_Angeles", "username": null, "youtube_handle": null, "tiktok_handle": null}
 ```
 Use `first_name + " " + last_name` when both exist, else `name`. 576 guests have a valid `/in/<slug>` handle. Some handles are `/company/…`, `/in/` or free text: treat those as no LinkedIn.
@@ -39,7 +39,7 @@ educations_details (string), languages [{title, subtitle}], certifications [{tit
 volunteer_experience [{title, subtitle (org), cause, start_date}], honors_and_awards [{title, publication, date}],
 organizations, projects [{title, ...}], bio_links [{title, link}], activity, similar_profiles   <- ignore activity & similar_profiles
 ```
-For offline development, create `tests/fixtures/linkedin_sample.json` with about 12 **synthetic** records in this shape, plus a matching `tests/fixtures/luma_sample.json`.
+For offline development, `tests/fixtures/linkedin_sample.json` has about 12 synthetic records in this shape, with a matching `tests/fixtures/luma_sample.json`.
 
 ## Graph (`GRAPH` env, default `roomfacts`)
 
@@ -96,7 +96,7 @@ Static pages: `GET /` redirects to `/screen`; `GET /screen` serves `static/scree
 | method | path | returns |
 |---|---|---|
 | GET | `/api/config` | `{public_base_url}` from env `PUBLIC_BASE_URL`, falling back to the request's base URL |
-| GET | `/api/facts` | `{facts:[fact…], generated_at}` — eligible facts in rotation order, counts only. Cache 5 s |
+| GET | `/api/facts` | `{facts:[fact…], generated_at}`: eligible facts in rotation order, counts only. Cache 5 s |
 | GET | `/api/fact/{id}` | one fact plus `path`: e.g. `["You", "STUDIED_AT", "UC Berkeley", "STUDIED_AT", "3 others"]`. 404 if not eligible |
 | GET | `/api/stats` | ticker stats (above) |
 | GET | `/api/events?since=<iso>` | recent anonymous opt-in events: `{at, text}`, e.g. "Someone who studied at UC Berkeley just opted in". Only mention eligible facts. Keep the last 50 in memory |
@@ -116,7 +116,7 @@ Keep tokens in `data/optins.json` as a SHA-256 hash so restarts don't log people
 
 ## Frontend
 
-**`static/screen.html`, the rotating screen.** It is an exact copy of the approved `../room-facts.html`, with only the data plumbing changed (the user's decision, Oct 24). Keep the visuals, the controls, the 3D view and the locations as they are.
+**`static/screen.html`, the rotating screen.** It's my original mockup (`room-facts.html`, kept outside this repo) with only the data plumbing changed. The visuals, the controls, the 3D view and the locations stay as they are.
 - Swap the hardcoded facts `F` for `/api/facts` (poll every 15 s). Every location rotates through all live facts, each starting at a different offset.
 - The ticker comes from `/api/stats` plus `/api/events` (poll every 5 s).
 - Give each fact its own QR, encoding `{public_base_url}/m?f={fact_id}` (from `/api/config`), with the existing qrcode-generator styling.
@@ -135,4 +135,4 @@ Keep tokens in `data/optins.json` as a SHA-256 hash so restarts don't log people
 
 - `pytest -q` passes: normalization (aliases, suffix stripping, slugs, junk dropping, city mapping) and a privacy test on the fixture graph. The privacy test checks that no public endpoint returns a name or a fact with `n < 3`, and that `/people` returns 403 without a token. Use FalkorDB if it's reachable, and skip the DB tests with a clear message if it isn't.
 - `python build_graph.py --luma tests/fixtures/luma_sample.json --linkedin tests/fixtures/linkedin_sample.json --graph roomfacts_test` works. With no args it uses `data/`.
-- `README.md` covers the run steps (docker, build_graph, server, ngrok with `PUBLIC_BASE_URL`), a 90-second stage demo script, and `demo_queries.cypher` (5–8 queries to paste into the FalkorDB Browser that show the graph and a rare-fact path).
+- `README.md` covers the run steps (docker, build_graph, server, ngrok with `PUBLIC_BASE_URL`). `demo_queries.cypher` has queries to paste into the FalkorDB Browser that show the graph and a rare-fact path.

@@ -1,8 +1,10 @@
-# Notes on the real data (`data/linkedin_raw.json`, scraped 10:36)
+# LinkedIn data: what the scrape actually looked like
+
+Scraped at 10:36 on build day into `data/linkedin_raw.json`.
 
 The file holds 576 records: 514 profiles and 62 errors (`dead_page` / `wait_element_timeout`). Fill counts, out of 514: city 514, country_code 514, current_company 379, education 350 (many entries have no title), educations_details 445, languages 204, certifications 264, volunteer_experience 145, courses 81, honors 140, organizations 57. **experience: 3** (it's effectively absent).
 
-Apply these to `normalize.py` / `facts.py` / `build_graph.py`:
+What `normalize.py`, `facts.py` and `build_graph.py` do about it:
 
 1. **Accent-fold ids**: NFKD, then drop combining marks. "San José State University" and "San Jose State University" are the same school (22 holders). Display the most common spelling.
 2. **Company comes from `current_company`** (`{name, company_id, link}`), since experience is missing. Set `current=true`. When every holder edge is current, the line is "people here work at {c}", otherwise "people here have worked at {c}". Prefer `current_company.company_id` as the id, but note the slugs can be odd ("steath", "marshell-labs" for "Mote"), so merge by folded name too.
@@ -20,7 +22,7 @@ Apply these to `normalize.py` / `facts.py` / `build_graph.py`:
 8. The `cause` values are LinkedIn's fixed list (Education 76 … Animal Welfare 4). Keep it.
 9. Keep `MIN_N=3` and `MAX_N=12`.
 
-Seen on the first real build (106 eligible facts: cert 37, school 18, language 16, city 14, cause 7, company 6, volunteer 5, country 2, school_company 1):
+Things I noticed on the first real build (106 eligible facts: cert 37, school 18, language 16, city 14, cause 7, company 6, volunteer 5, country 2, school_company 1):
 
 10. **US city display**: show "Fremont, CA" (state abbreviation, from "Fremont, California, United States"), because "people here live in Dublin" means Dublin, CA, not Ireland. Non-US cities stay bare ("Bengaluru", "London"). The id must still separate same-named cities in different states or countries.
 11. **Rotation balance**: deal round-robin across kinds, each kind sorted by `n` ascending and then id, so the mix stays varied. Cap `cert` at the 12 rarest and `cert_issuer` at 10. Facts over a cap are still valid for `/api/person/{id}/facts` and `/api/fact/{id}`; they're just left out of the `/api/facts` rotation.
