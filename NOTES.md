@@ -4,7 +4,7 @@ What I decided while building Room Facts, where it ended up after the hackathon,
 
 ## Decisions
 
-1. Screens show counts only, never names, and nothing under 3 people appears anywhere public.
+1. Screens show counts only, never names. Public fact feeds exclude groups smaller than 3.
 2. The QR code opens the phone page. You pick your name, check your facts and opt in. After that you see every other opted-in person you share a visible fact with, even for facts fewer than 3 people share, because both of you chose to be visible. The list refreshes every 15 seconds.
 3. I kept the screen design from my original mockup and only wired in the live data. No time to redesign on build day, and I liked it.
 4. Data comes from the Luma guest list plus Bright Data scrapers, matched on the LinkedIn, X and Instagram handles people gave Luma. GitHub accounts only count with evidence: a published link, the GitHub profile listing their LinkedIn or X, the same website, or the same name plus location.
@@ -33,7 +33,7 @@ Qodo caught real bugs. On PR #4 alone it found that `/api/person/{id}/facts` ret
 ## Next
 
 1. Prove identity at opt-in. Right now you pick your own name and nothing checks it. A one-time code from the Luma ticket is the cheapest fix.
-2. Rate limit `/api/people/search` and require a longer query, so nobody can page through the guest list.
+2. Rate limit `/api/people/search` and require a longer query to make bulk guest-list lookups harder.
 3. Swap ngrok for a Cloudflare tunnel. ngrok's free tier shows a warning page on phones first.
 4. Let people add their own facts in plain text ("I used to be a nurse"). An LLM maps it onto an existing node if there is one, and it only counts in groups of 3+.
 5. Maybe a one-line "why you two should talk" for opted-in people, built only from the graph path between them.
@@ -43,7 +43,7 @@ Qodo caught real bugs. On PR #4 alone it found that `/api/person/{id}/facts` ret
 ## Rules I stick to on this repo
 
 - Never commit `data/`, `.env`, raw scrapes, guest names, or keys and tokens (that includes the Luma `?tk=` key). The pre-commit hook and CI (`scripts/guard_commit.py`) block these. Don't loosen the guard to get a push through.
-- The privacy rules in SPEC.md are hard requirements. Every public response is counts only, 3 or more.
+- The privacy rules in SPEC.md remain the intended contract. Venue screens and public fact feeds show aggregate groups of 3 or more; connection lists require mutual opt-in. Name search and profile confirmation expose guest names before opt-in, and identity remains self-claimed. Those gaps still need hardening.
 - Ignore sensitive scraped fields even if they show up again: birth dates, emails, pronouns, post text, tagged people, `activity`, `similar_profiles`.
 - In Cypher, labels and relationship types only come from the fixed tables in the code. Values are always parameters.
 - Small PRs. Every new fact kind gets a test.

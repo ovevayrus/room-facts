@@ -1,23 +1,24 @@
 # Room Facts
 
-Screens around a conference venue that show rare things the people in the room have in common, one at a time: "3 people here speak Romanian", "7 people here have contributed to nousresearch/hermes-agent". Each one is just a count. No names on the screen.
+Room Facts puts unusual things conference guests have in common on screens around the venue. A screen might say "3 people here speak Romanian" or "7 people here have contributed to nousresearch/hermes-agent". It shows a count, with a QR code underneath.
 
-If one of them is you, scan the QR code under it, check which of your facts are right, and opt in. Then you can see the other people who opted in and share something with you, and go find them.
+Scan it, find your profile, review your facts, and opt in. The phone page then shows other opted-in people you share something with, along with the connection between you.
 
-I built this in a day at [Patch the Conference](https://wemakedevs.org/hackathons/ptc) (Oct 24, 2026, San Francisco) for the FalkorDB track. It ran on the real guest list for the event, 616 people.
+I built the prototype in a day at Patch the Conference in San Francisco on October 24, 2026, for the FalkorDB track. The demo used the event's real registration list of 616 guests.
 
-## Why
+## Why I built it
 
-Before the hackathon I interviewed people who go to conferences, and read a lot of Hacker News threads about conference networking. The same things kept coming up:
+I started with interviews about conferences, before choosing what to build. A short Google Form helped me find people to talk to, and I ended up doing three phone calls: a physician, an independent pharmacy owner, and someone working in insurance. I asked about their last conference, how conversations started, and what happened afterwards.
 
-- The meetings that led somewhere came from something people already shared (same school, same town, a friend of a friend, a peer vouching for something), not from being matched with a stranger on interests. One person told me they'd *rather* meet people from completely different backgrounds. The surprising person was the best part of their day.
-- People open conversations with tiny things, like a lanyard or "when's the next talk?"
-- Messages sent through the conference app go nowhere, because the other person isn't in the app.
-- Developers on HN hate cold networking and flip their badges so the QR code doesn't get them spammed.
+The pharmacy owner's stories stuck with me. A seatmate on a flight turned out to own the pharmacy they had nearly bought. At another event, a conversation led to someone whose aunt lived in their town. They were comfortable approaching strangers; the interesting part was finding the connection neither person knew about.
 
-So I wanted something that tells you there are people here you share something unusual with, gives you an opener, doesn't need an app, and never puts anyone's name on a wall.
+The insurance attendee deliberately used small questions about the schedule to start conversations. They preferred meeting people from different backgrounds to being matched by interests. The physician described unanswered messages in a conference app and introductions that happened through people they already knew.
 
-The longer version, with the interviews, what I took from them and the ideas I threw away, is in [docs/how-i-found-the-problem.md](docs/how-i-found-the-problem.md).
+That gave me a direction: put a shared detail somewhere people can notice it, and give them a small reason to say hello. A venue screen doesn't ask anyone to install an app or wait for a match. The QR code gives someone who is interested a next step.
+
+I also read Hacker News discussions about conference networking, where some commenters described awkward introductions and unwanted badge scans. That helped shape the opt-in flow, but it wasn't a substitute for interviewing developers. All three people I spoke to were confident networkers outside tech. I still need to test whether this helps the less confident people I had in mind.
+
+The [research notes](docs/how-i-found-the-problem.md) cover the calls, the ideas I dropped, and what I still don't know.
 
 ## How it works
 
@@ -42,35 +43,56 @@ A fact is a graph pattern. "People here work at companies backed by Sequoia" is 
 
 My first version showed rare facts first, and the screens ended up showing "3 people here…" over and over, mostly with broad stuff like "studied in the UK". Now `facts.py` cycles small, medium and large groups and prefers specific things (a particular university, a repo) over broad ones. [docs/rotation-variety.md](docs/rotation-variety.md) has the details.
 
-### Privacy
+## Data and privacy
 
-The rules I didn't bend on:
+The screens show aggregate facts about groups of at least three guests. Names stay off the venue screens. Connection cards on the phone require opt-in from both people and a shared visible fact; those private connections can include groups smaller than three.
 
-- Screens and every public endpoint return counts only, and only for groups of 3 or more.
-- You only see names after you opt in, and only of other opted-in people who share a fact with you.
-- You can untick anything that's wrong or that you don't want counted. Facts you never got to review don't count anywhere.
-- Scraped data never goes in git. `scripts/guard_commit.py` runs as a pre-commit hook and in CI to block `data/`, raw scrapes and anything that looks like a key.
+The initial aggregate counts include registered guests who haven't opted in. When someone joins, they choose which reviewed facts to share. Unchecked facts are hidden, and unreviewed facts stay pending until approved. Opt-in controls the connection list and saved fact choices; it isn't prior consent from everyone counted on a screen.
 
-[SPEC.md](SPEC.md) has the full API and the exact privacy rules.
+The demo also lets people search guest names and confirm a profile before opting in. Picking a name doesn't prove ownership. Identity verification and stronger name-search restrictions still need work.
 
-## Run it
+Raw exports stay out of Git. `scripts/guard_commit.py` checks for private data paths and common secret formats, both locally and in CI. Opt-in state lives in `data/optins.json`, with token hashes rather than raw tokens, and survives graph rebuilds. Keep that file on durable, private storage.
 
-1. Start FalkorDB: `docker run -d --name roomfacts-db -p 6379:6379 -p 3000:3000 falkordb/falkordb:latest`. The FalkorDB Browser is on `http://localhost:3000`.
-2. `pip install -r requirements.txt`
-3. Build the graph: `python build_graph.py`. It reads `data/luma_guests.json` plus whichever scraped files are in `data/`. The `data/` folder isn't in this repo since it's scraped personal data, so to try it without that, use the synthetic fixtures:
-   `python build_graph.py --luma tests/fixtures/luma_sample.json --linkedin tests/fixtures/linkedin_sample.json --graph roomfacts_test`
-4. Start the API: `python server.py` (set `GRAPH=roomfacts_test` first if you used the fixtures). Open `http://localhost:8000/screen` and `http://localhost:8000/m`.
-5. For phones at the venue, run `ngrok http 8000` and set `PUBLIC_BASE_URL` to the HTTPS URL before starting the API. That's the address the QR codes use.
+[SPEC.md](SPEC.md) documents the API and intended privacy rules. The limitations above describe the current demo.
 
-Other environment variables: `FALKOR_HOST` (default `localhost`), `FALKOR_PORT` (`6379`), `GRAPH` (`roomfacts`), `MIN_N` (`3`), `MAX_N` (`25`), and `OPENAI_API_KEY` in `.env`, which is optional and only used to help people find their own name when the plain search misses.
+## Try it locally
 
-Opt-ins are saved to `data/optins.json` (token hashes, not tokens) and replayed after every graph rebuild. Keep that file somewhere durable and private.
+Use Python 3.13 and Docker. A fresh clone includes synthetic guests, so you can try it without the event's private exports or API keys.
 
-To rebuild the real data you need your own Luma ticket key for the event (`python fetch_luma.py <event_api_id> <ticket_key>`), a Bright Data key in `BRIGHTDATA_API_KEY`, and `gh` logged in for the GitHub step.
+```bash
+git clone https://github.com/ovevayrus/room-facts.git
+cd room-facts
+python -m pip install -r requirements.txt
+docker run -d --name roomfacts-db -p 6379:6379 -p 3000:3000 falkordb/falkordb:latest
+python build_graph.py --luma tests/fixtures/luma_sample.json --linkedin tests/fixtures/linkedin_sample.json --graph roomfacts_test
+```
+
+Start the server against that graph. In PowerShell:
+
+```powershell
+$env:GRAPH = "roomfacts_test"
+python server.py
+```
+
+On macOS or Linux:
+
+```bash
+GRAPH=roomfacts_test python server.py
+```
+
+Open the [venue screens](http://localhost:8000/screen), [single-screen view](http://localhost:8000/monitor), or [phone page](http://localhost:8000/m). The [FalkorDB Browser](http://localhost:3000) lets you inspect the graph; `demo_queries.cypher` has example queries.
+
+The fixture graph starts without seeded opt-ins, so the phone's connection list and fact chooser may be empty. For a populated interface preview, use [screen mock mode](http://localhost:8000/screen?mock=1) and [phone mock mode](http://localhost:8000/m?mock=1). Those use sample UI data.
+
+For phones on another network, run `ngrok http 8000` in another terminal. Set `PUBLIC_BASE_URL` to its HTTPS URL before starting the server; that's the address the QR codes use.
+
+Other settings: `FALKOR_HOST` defaults to `localhost`, `FALKOR_PORT` to `6379`, and `GRAPH` to `roomfacts`. `MIN_N` defaults to `3` and cannot go lower. `MAX_N` defaults to `25`; most fact kinds keep a cap of `12`, with selected kinds allowed up to `25`.
+
+With your own authorized exports in `data/`, `python build_graph.py` builds the default graph. The collection scripts need event access for Luma, `BRIGHTDATA_API_KEY` for Bright Data, and a signed-in `gh` for GitHub. None of those are needed for the fixture demo. An optional `OPENAI_API_KEY` in the environment or `.env` helps with name lookup when plain search misses; it doesn't generate the graph facts.
 
 ## Tests
 
-`pytest -q`. The normalization and fact selection tests run offline. The database tests need FalkorDB on port 6379 and skip with a message if it isn't there.
+Run `pytest -q` and `python scripts/guard_commit.py --all`. The normalization and fact selection tests run offline. The database tests need FalkorDB on port 6379 and skip with a message if it isn't there.
 
 `demo_queries.cypher` has queries to paste into the FalkorDB Browser to look at the graph and at a rare-fact path.
 
@@ -81,12 +103,15 @@ Branch, then open a PR. CI runs pytest against a FalkorDB service plus the data 
 ## Known gaps
 
 - Opt-in is self-claimed. You pick your own name and nothing proves it's you. A one-time code from your Luma ticket would fix that.
-- Name search should be rate limited and need a longer query, so nobody can page through the guest list.
+- Name search needs rate limits and a longer minimum query to make bulk guest-list lookups harder.
 - ngrok's free tier shows a warning page on phones before the site loads. A Cloudflare tunnel avoids it.
-- It ran on my laptop for the demo. Fine for ~50 opt-ins, not for a real 3,000-person conference.
+- It ran on my laptop through ngrok, intended for roughly 50 demo opt-ins. I haven't load tested it for a larger event.
+- The graph describes registrations, rather than checking who is physically in the room.
+
+I want to test the idea with developers who find networking difficult, and with an organizer who would have to run it. The interviews helped me choose a direction; they haven't established that people will scan or meet because of it.
 
 [NOTES.md](NOTES.md) has the decisions I made during the build and what I'd do next.
 
-## How it was built
+## How I used AI
 
-One day, with Claude Code and Codex writing a lot of the code. The research, the privacy rules and the product decisions were mine. Qodo reviewed every PR and caught a few real privacy bugs along the way (see `tests/test_qodo_review.py`).
+Claude Code and Codex wrote a lot of the implementation. I did the interviews, chose the problem, and made the product decisions, including the screen format and fact-review flow. Qodo's reviews caught privacy bugs that needed fixes; `tests/test_qodo_review.py` records those regressions.
